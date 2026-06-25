@@ -18,6 +18,13 @@ from core.http import client_for
 from models.schemas import ModuleResult, ScanContext, Subdomain
 
 CRTSH_URL = "https://crt.sh/"
+# crt.sh runs a heavy Certificate-Transparency DB query that routinely takes
+# 10-60s on a cold cache and frequently returns 5xx. The global probe timeout
+# (ctx.timeout, default 10s) is far too short, so floor it here and retry a
+# couple of times with backoff before giving up.
+CRTSH_TIMEOUT = 30.0
+CRTSH_ATTEMPTS = 2
+CRTSH_BACKOFF = 2.0
 
 
 class SubdomainModule(BaseModule):
@@ -41,15 +48,29 @@ class SubdomainModule(BaseModule):
     async def _query_crtsh(self, ctx: ScanContext, domain: str) -> set[str]:
         """Fetch unique names from crt.sh certificate transparency records."""
         params = {"q": f"%.{domain}", "output": "json"}
+        timeout = max(ctx.timeout, CRTSH_TIMEOUT)
         names: set[str] = set()
+        records = None
         async with client_for(ctx) as client:
-            try:
-                resp = await client.get(CRTSH_URL, params=params)
-                resp.raise_for_status()
-                records = resp.json()
-            except (httpx.HTTPError, ValueError) as exc:
-                self.log.warning("subdomains.crtsh_failed", error=str(exc))
-                return names
+            for attempt in range(1, CRTSH_ATTEMPTS + 1):
+                try:
+                    resp = await client.get(CRTSH_URL, params=params, timeout=timeout)
+                    resp.raise_for_status()
+                    records = resp.json()
+                    break
+                except (httpx.HTTPError, ValueError) as exc:
+                    # crt.sh timeouts can carry an empty message — log the type too.
+                    self.log.warning(
+                        "subdomains.crtsh_failed",
+                        attempt=attempt,
+                        attempts=CRTSH_ATTEMPTS,
+                        error_type=type(exc).__name__,
+                        error=str(exc) or repr(exc),
+                    )
+                    if attempt < CRTSH_ATTEMPTS:
+                        await asyncio.sleep(CRTSH_BACKOFF * attempt)
+        if records is None:
+            return names
 
         for record in records:
             value = record.get("name_value", "")
