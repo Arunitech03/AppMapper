@@ -64,13 +64,19 @@ poetry run appmapper scan --url https://example.com --domain example.com
 python -m venv .venv
 source .venv/bin/activate
 pip install httpx dnspython cryptography pydantic pydantic-settings pyyaml \
-            sqlalchemy structlog typer rich
+            sqlalchemy structlog typer rich playwright
+playwright install chromium                            # download the browser binary
 pip install pytest pytest-asyncio respx ruff black     # dev/test tools
 ```
 
+> **Playwright** is required for the browser-driven features (`auth capture`, exploration
+> capture, `--session`, `--browser-tech`). The `pip install … playwright` step adds the
+> Python package; `playwright install chromium` downloads the actual browser — both are
+> needed. (`poetry install` installs the package, but you still run `playwright install
+> chromium` once afterwards.)
+
 **Optional extras**
 - **nmap** service discovery — install the `nmap` binary (module skips gracefully if absent).
-- **`auth capture`** (manual browser session) — `pip install playwright && playwright install chromium`.
 
 Run the test suite / linters:
 
