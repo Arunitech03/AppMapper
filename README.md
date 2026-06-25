@@ -35,17 +35,19 @@ knowledge base, and writes consolidated **JSON / Markdown / HTML** reports.
 
 ```bash
 cd AppMapper
-source .venv/bin/activate          # or prefix commands with ./.venv/bin/python
+source .venv/bin/activate          # macOS/Linux  (or prefix commands with ./.venv/bin/python)
+# Windows: .\.venv\Scripts\Activate.ps1   (PowerShell)  ·  .venv\Scripts\activate.bat   (cmd)
 
 # 1) Simplest anonymous scan
 python main.py scan --url https://demo.testfire.net --domain testfire.net
 
 # 2) Read the reports
-open reports/report.html           # or: less reports/report.md
+open reports/report.html           # macOS  ·  Linux: xdg-open  ·  Windows: start reports\report.html
 ```
 
-> If you see a `typer`/import error, you're not using the project venv. Run with
-> `./.venv/bin/python main.py ...` or `source .venv/bin/activate` first.
+> If you see a `typer`/import error, you're not using the project venv. Activate it first
+> (`source .venv/bin/activate`, or `.\.venv\Scripts\Activate.ps1` on Windows), or run via
+> the venv interpreter directly (`./.venv/bin/python` / `.venv\Scripts\python.exe`).
 
 ---
 
@@ -58,16 +60,44 @@ poetry install
 poetry run appmapper scan --url https://example.com --domain example.com
 ```
 
-**With a plain virtualenv + pip:**
+**With a plain virtualenv + pip** — requires Python 3.12+.
+
+<details open><summary><b>macOS / Linux</b></summary>
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install httpx dnspython cryptography pydantic pydantic-settings pyyaml \
             sqlalchemy structlog typer rich playwright
 playwright install chromium                            # download the browser binary
 pip install pytest pytest-asyncio respx ruff black     # dev/test tools
 ```
+</details>
+
+<details><summary><b>Windows (PowerShell)</b></summary>
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+# If activation is blocked, allow scripts for this session first:
+#   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+pip install httpx dnspython cryptography pydantic pydantic-settings pyyaml `
+            sqlalchemy structlog typer rich playwright
+playwright install chromium                            # download the browser binary
+pip install pytest pytest-asyncio respx ruff black     # dev/test tools
+```
+</details>
+
+<details><summary><b>Windows (cmd.exe)</b></summary>
+
+```bat
+py -3.12 -m venv .venv
+.\.venv\Scripts\activate.bat
+pip install httpx dnspython cryptography pydantic pydantic-settings pyyaml sqlalchemy structlog typer rich playwright
+playwright install chromium
+pip install pytest pytest-asyncio respx ruff black
+```
+</details>
 
 > **Playwright** is required for the browser-driven features (`auth capture`, exploration
 > capture, `--session`, `--browser-tech`). The `pip install … playwright` step adds the
@@ -75,8 +105,13 @@ pip install pytest pytest-asyncio respx ruff black     # dev/test tools
 > needed. (`poetry install` installs the package, but you still run `playwright install
 > chromium` once afterwards.)
 
+> **Running commands:** this README uses the macOS/Linux venv path `./.venv/bin/python`.
+> The Windows equivalent is `.venv\Scripts\python.exe` (PowerShell/cmd). Once the venv is
+> activated, plain `python main.py …` works on every platform.
+
 **Optional extras**
 - **nmap** service discovery — install the `nmap` binary (module skips gracefully if absent).
+  On Windows, install from [nmap.org/download](https://nmap.org/download) and ensure `nmap.exe` is on `PATH`.
 
 Run the test suite / linters:
 
