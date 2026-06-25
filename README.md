@@ -129,6 +129,12 @@ reports. Every option is optional individually, but you must supply a target via
 | `--domain` | TEXT | URL host | Apex/registrable domain. Defaults to the host of `--url`; used as the storage key and to tell internal vs. third-party hosts apart. |
 | `--config` | PATH | — | YAML target config (multi-role auth, crawl seeds, per-role captures). See [Config file](#config-file-targetyaml). |
 
+### Network / TLS
+
+| Flag | Arg | Default | Description |
+|---|---|---|---|
+| `--insecure` | flag | off | **Ignore TLS certificate errors** (self-signed, expired, hostname-mismatch) for the HTTP probes, the authenticated crawl, **and every browser module** (`--browser-tech`, plus `auth capture` / `auth explore`, which take their own `--insecure`). Use for staging/UAT environments served over self-signed or otherwise invalid certificates — it clears Playwright's `net::ERR_CERT_*` errors. Secure-by-default: omit it and TLS is verified. The env-based equivalent is `ASDF_VERIFY_TLS=false`. |
+
 ### Authentication (single-role, from the CLI)
 
 For multi-role comparison use `--config` with a `users:` list instead.
@@ -215,8 +221,8 @@ python main.py scan --session sessions/admin.json --url https://app.example.com 
 
 | Command | Required | Optional |
 |---|---|---|
-| `auth capture` | `--url` | `--role` (def `admin`), `--out`, `--headless`, `--timeout` (def 60000 ms) |
-| `auth explore` | `--url` | `--role`, `--out`, `--har`, `--headless`, `--safe-mode`, `--debug-browser`, `--timeout` |
+| `auth capture` | `--url` | `--role` (def `admin`), `--out`, `--headless`, `--timeout` (def 60000 ms), `--insecure` |
+| `auth explore` | `--url` | `--role`, `--out`, `--har`, `--headless`, `--safe-mode`, `--debug-browser`, `--timeout`, `--insecure` |
 | `report` | `--domain` | `--db`, `--output-dir` |
 | `list-assets` | `--domain` | `--db` |
 | `query` | `--q` | `--domain`, `--db` |

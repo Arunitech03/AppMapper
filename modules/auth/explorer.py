@@ -312,6 +312,7 @@ def explore(
     on_ready=None,
     poll_ms: int = 500,
     nav_timeout_ms: int = 60000,
+    ignore_https_errors: bool = False,
 ) -> dict:
     """Run an interactive exploration capture and write exploration.json + HAR.
 
@@ -371,7 +372,11 @@ def explore(
         # Embed response bodies in the HAR so response *schemas* (top-level JSON
         # keys, keys-only) can be extracted after the session — without any live
         # body reads that would stall the page (keeps capture passive).
-        context = browser.new_context(record_har_path=str(har_path), record_har_content="embed")
+        context = browser.new_context(
+            record_har_path=str(har_path),
+            record_har_content="embed",
+            ignore_https_errors=ignore_https_errors,
+        )
         page = context.new_page()  # the user's primary tab
         tracked: list = [page]  # every page/popup we observe
 

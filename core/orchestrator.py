@@ -324,7 +324,11 @@ class Orchestrator:
         settle = int(ctx.options.get("browser_wait", 4000))
         try:
             result = await asyncio.to_thread(
-                fingerprint_runtime, ctx.target.url, storage_state=storage, settle_ms=settle
+                fingerprint_runtime,
+                ctx.target.url,
+                storage_state=storage,
+                settle_ms=settle,
+                ignore_https_errors=not ctx.verify_tls,
             )
         except PlaywrightNotInstalled as exc:
             log.warning("browser_tech.unavailable", hint=str(exc).splitlines()[0])

@@ -47,6 +47,7 @@ def fingerprint_runtime(
     headless: bool = True,
     nav_timeout_ms: int = 60000,
     settle_ms: int = 4000,
+    ignore_https_errors: bool = False,
 ) -> dict:
     """Boot the page in a browser and return runtime-detected technologies.
 
@@ -67,6 +68,8 @@ def fingerprint_runtime(
         except Exception as exc:  # noqa: BLE001
             raise PlaywrightNotInstalled(INSTALL_HINT) from exc
         ctx_kwargs = {"storage_state": storage_state} if storage_state else {}
+        if ignore_https_errors:
+            ctx_kwargs["ignore_https_errors"] = True
         context = browser.new_context(**ctx_kwargs)
         page = context.new_page()
         page.set_default_navigation_timeout(nav_timeout_ms)

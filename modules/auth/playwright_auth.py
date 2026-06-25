@@ -42,6 +42,7 @@ def capture(
     prompt=input,
     headless: bool = False,
     nav_timeout_ms: int = 60000,
+    ignore_https_errors: bool = False,
 ) -> Path:
     """Open a browser, let the user log in, then save the session state.
 
@@ -70,7 +71,7 @@ def capture(
             browser = p.chromium.launch(headless=headless)
         except Exception as exc:  # noqa: BLE001 - browser binary not installed
             raise PlaywrightNotInstalled(INSTALL_HINT) from exc
-        context = browser.new_context()
+        context = browser.new_context(ignore_https_errors=ignore_https_errors)
         page = context.new_page()
         # Wait only for the DOM (SPAs/OIDC redirects rarely reach a quiet "load")
         # and tolerate a slow first paint — the browser stays open to log in.

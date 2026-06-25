@@ -48,6 +48,11 @@ def capture(
         False, "--headless", help="Run without a visible window (headless/CI contexts)"
     ),
     timeout: int = typer.Option(60000, "--timeout", help="Initial navigation timeout (ms)"),
+    insecure: bool = typer.Option(
+        False,
+        "--insecure",
+        help="Ignore TLS certificate errors (self-signed/expired/invalid certs on staging/UAT)",
+    ),
 ) -> None:
     """Open a browser to log in manually (IdP/MFA/SSO), then save the session state.
 
@@ -59,7 +64,14 @@ def capture(
 
     out_path = out or f"sessions/{role}.json"
     try:
-        written = do_capture(role, url, out_path, headless=headless, nav_timeout_ms=timeout)
+        written = do_capture(
+            role,
+            url,
+            out_path,
+            headless=headless,
+            nav_timeout_ms=timeout,
+            ignore_https_errors=insecure,
+        )
     except PlaywrightNotInstalled as exc:
         console.print(f"[yellow]{exc}[/yellow]")
         raise typer.Exit(code=1) from exc
@@ -89,6 +101,11 @@ def explore(
         help="Log every browser event (tab created/closed, navigation, popup, download)",
     ),
     timeout: int = typer.Option(60000, "--timeout", help="Initial navigation timeout (ms)"),
+    insecure: bool = typer.Option(
+        False,
+        "--insecure",
+        help="Ignore TLS certificate errors (self-signed/expired/invalid certs on staging/UAT)",
+    ),
 ) -> None:
     """Exploration Capture Mode: log in and explore manually while AppMapper records.
 
@@ -115,6 +132,7 @@ def explore(
             safe_mode=safe_mode,
             debug_browser=debug_browser,
             nav_timeout_ms=timeout,
+            ignore_https_errors=insecure,
         )
     except PlaywrightNotInstalled as exc:
         console.print(f"[yellow]{exc}[/yellow]")
@@ -261,6 +279,12 @@ def scan(
         "--show-pii",
         help="Unmask user name/email in JWT intelligence (internal environments only)",
     ),
+    insecure: bool = typer.Option(
+        False,
+        "--insecure",
+        help="Ignore TLS certificate errors for HTTP probes and browser modules "
+        "(self-signed/expired/invalid certs on staging/UAT)",
+    ),
     log_level: str = typer.Option("INFO", "--log-level"),
     log_json: bool = typer.Option(False, "--log-json"),
 ) -> None:
@@ -294,7 +318,7 @@ def scan(
         timeout=settings.http_timeout,
         max_concurrency=settings.http_max_concurrency,
         user_agent=settings.user_agent,
-        verify_tls=settings.verify_tls,
+        verify_tls=settings.verify_tls and not insecure,
         wordlist_path=wordlist,
         options={
             "global_har": har,
