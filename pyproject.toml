@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "asdf-framework"
+name = "appmapper"
 version = "0.1.0"
 description = "Attack Surface Discovery & Pentest Automation Framework (Tier 1 MVP) - discovery/recon/analysis only, no exploitation."
 authors = ["Security Training <security@example.com>"]

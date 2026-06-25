@@ -1,0 +1,16 @@
+# Example assessment definition (sanitized).
+# Copy this folder to assessments/<your-engagement>/ and edit for a real target.
+# Run with:  ./.venv/bin/python main.py scan --config assessments/example/target.yaml --offline
+url: https://example.com
+# domain: example.com   # optional; defaults to the URL host
+
+# Capture paths are relative to THIS file's directory (assessments/example/),
+# so the assessment is self-contained — drop the HARs in assessments/example/captures/.
+users:
+  - role: admin
+    har: captures/admin.har
+    auth_mode: har          # auth_mode: har | exploration | storage_state
+
+  - role: user
+    har: captures/user.har
+    auth_mode: har
