@@ -172,6 +172,30 @@ def test_dns_intelligence_section():
             assert pos < html.index(later)
 
 
+def test_network_services_promoted_to_insight_and_kpi():
+    data = dict(
+        _data(),
+        network_services=[
+            {
+                "port": 443,
+                "protocol": "tcp",
+                "service": "https",
+                "version": "nginx",
+                "state": "open",
+            },
+            {"port": 53, "protocol": "tcp", "service": "domain", "version": "", "state": "open"},
+        ],
+    )
+    html = render_html(data)
+    # Rendered as an expanded top-level insight <section>, not buried in evidence <details>.
+    assert '<section id="s-network-services">' in html
+    assert '<details class="ev" id="s-network-services">' not in html
+    # The nmap port/service data is visible.
+    assert "443" in html and "https" in html
+    # Open Ports KPI card on the dashboard reflects the count.
+    assert "Open Ports" in html
+
+
 def test_critical_findings_are_alert_panels():
     html = render_html(_data())
     assert '<div class="panel sev-high">' in html  # admin-roles finding -> High panel

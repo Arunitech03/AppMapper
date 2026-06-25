@@ -35,6 +35,7 @@ _INSIGHT_ORDER = (
     "Authentication Flow",
     "Authentication Risk Analysis",
     "DNS Intelligence",
+    "Network Services",
     "Redirect Intelligence",
     "Internal Service Inventory",
     "Secrets & Sensitive Configuration",
@@ -219,6 +220,7 @@ def _kpi_cards(report: dict) -> str:
         ("Secrets", ei.get("secrets", 0), "red"),
         ("Hidden APIs", len(ei.get("hidden_apis", [])), "amber"),
         ("Sensitive Endpoints", len(report.get("sensitive_functions", [])), "red"),
+        ("Open Ports", len(report.get("network_services", [])), "teal"),
         ("Third Parties", len(di.get("third_party", [])), "gray"),
     ]
     items = "".join(
