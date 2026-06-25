@@ -1,0 +1,12 @@
+Auth/Login
+Home/Index
+Home/About
+Vulnerable/UserInput
+Vulnerable/AddComment
+Vulnerable/Comments
+Vulnerable/PingIP
+ProdSearch/ProductSearch
+File/FileUpload
+File/FileReader
+SSRF/ApiIndex1
+ResPHeaderDemo/JSFetchAPI

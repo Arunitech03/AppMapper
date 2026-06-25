@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Databases — contain captured engagement data (hosts, headers). Never commit.
+*.db
+*.sqlite
+*.sqlite3
+
+# Generated reports (artifacts; archived into archives/ on --archive)
+reports/
+tmp/
+
+# Per-engagement assessment definitions (customer target URLs). Ship sanitized
+# examples explicitly with `git add -f assessments/example/target.yaml`.
+assessments/
+
+# Claude Code conversation exports / logs (contain full transcript + live data)
+*-this-session-is-being-continued-*.txt
+Claude_log*.txt
+*.jsonl
+
+# Example inputs that contain real captures / tokens (ship only sanitized examples)
+examples/capture.har
+examples/burp.xml
+examples/x1app_roles.yaml
+examples/AppMapperLog.txt
+
+# Stray HAR captures anywhere (live tokens)
+*.har
+
+# OS
+.DS_Store
+
+# Captured browser sessions (contain live tokens)
+sessions/
+
+# Exploration captures (raw HAR contains live tokens)
+exploration/
+
+# Assessment archives (self-contained engagement artifacts — contain live tokens)
+archives/
+current_assessment
+current_assessment.txt
+
+# Other per-engagement artifact dirs
+captures/
+screenshots/
+downloads/
+logs/

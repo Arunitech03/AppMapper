@@ -1,0 +1,68 @@
+# Sample target configuration.
+# Pass with:  python main.py scan --config config/default.yaml
+#
+# CLI flags (--url, --domain) override values set here.
+
+target_url: https://example.com
+domain: example.com
+
+# Authentication mode (enterprise auth). One of:
+#   none    – unauthenticated discovery only
+#   jwt     – per-user `jwt_token:` (REST APIs / microservices)
+#   session – per-user `session_file:` (Playwright storage_state; works for
+#             Keycloak / OIDC / SAML / Azure AD-Entra / Okta / Auth0 — capture it
+#             once by hand with `python main.py auth capture --role admin --url ...`)
+#   har     – per-user `har:` / `burp:` captured traffic
+#   auto    – pick per role from whatever each user provides (default)
+auth_mode: auto
+
+# Extra authenticated entry paths to seed the crawl. Useful when the base URL is
+# the login page (session/jwt/cookie modes have no post-login redirect to follow).
+# Equivalent to repeating --crawl-path on the CLI; both are combined.
+crawl_start:
+  - /Home/Index
+  # - /dashboard
+
+# Example: browser-session role (no password needed — reuse a captured session):
+#   - role: admin
+#     session_file: sessions/admin.json
+# Example: JWT/API role:
+#   - role: api-admin
+#     jwt_token: eyJhbGci...
+
+# One or more identities (roles). With two or more roles, AppMapper performs
+# role-based access comparison: it probes each role's GET-reachable endpoints
+# (using that role's own credentials) and reports the per-role access matrix and
+# the differences (admin-only / user-only / shared).
+#
+# Credentials are used ONLY to (a) parse already-authenticated HAR/Burp captures
+# and (b) attach an Authorization header (from jwt_token) to read-only discovery
+# requests. They are NEVER used for login automation, brute forcing,
+# authorization-bypass testing, or privilege escalation.
+#
+# Tier 2 (authenticated crawling): each role may also define a `login:` block so
+# the crawler can establish a session with the role's OWN credentials (a single
+# configured login POST — never brute forcing or bypass). Omit `login:` to let
+# the crawler auto-detect the login form, or supply `cookie:`/`jwt_token:` to skip
+# login entirely.
+users:
+  - role: admin
+    username: admin
+    password: password123
+    jwt_token:                 # optional; enables authenticated live probing
+    login:                     # optional; auto-detected if omitted
+      url: /Auth/Login
+      username_field: Username
+      password_field: Password
+    har: captures/admin.har    # optional per-role capture
+    burp: captures/admin.xml   # optional per-role capture
+  - role: user
+    username: jsmith
+    password: user123
+    jwt_token:
+    har: captures/user.har
+
+# Legacy single-user form is still accepted instead of users[]:
+# username: admin
+# password: password123
+# jwt_token:

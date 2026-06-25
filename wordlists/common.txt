@@ -1,0 +1,37 @@
+# Default directory-enumeration wordlist (one path per line, '#' = comment).
+# Built-in high-signal paths are always checked in addition to this list.
+about
+account
+admin
+api
+api/v1
+app
+assets
+backup
+config
+console
+dashboard
+debug
+docs
+download
+files
+health
+home
+images
+js
+login
+logout
+metrics
+private
+profile
+register
+settings
+static
+status
+test
+tmp
+upload
+uploads
+user
+users
+.well-known/security.txt
