@@ -285,6 +285,13 @@ def scan(
         help="Ignore TLS certificate errors for HTTP probes and browser modules "
         "(self-signed/expired/invalid certs on staging/UAT)",
     ),
+    subdomain_sources: str | None = typer.Option(
+        None,
+        "--subdomain-sources",
+        help="Passive subdomain sources (comma-separated): crtsh,alienvault,bufferover,"
+        "rapiddns,securitytrails,virustotal. Default: all available (key-gated sources "
+        "need ASDF_SECURITYTRAILS_API_KEY / ASDF_VIRUSTOTAL_API_KEY).",
+    ),
     log_level: str = typer.Option("INFO", "--log-level"),
     log_json: bool = typer.Option(False, "--log-json"),
 ) -> None:
@@ -333,6 +340,13 @@ def scan(
             "offline": offline,
             "show_pii": show_pii,
             "dns": dns,
+            "subdomain_sources": (
+                [s.strip() for s in subdomain_sources.split(",") if s.strip()]
+                if subdomain_sources
+                else None
+            ),
+            "securitytrails_key": settings.securitytrails_api_key,
+            "virustotal_key": settings.virustotal_api_key,
         },
     )
     log.info("scan.targets", roles=[u.role for u in target.users] or ["<anonymous>"])

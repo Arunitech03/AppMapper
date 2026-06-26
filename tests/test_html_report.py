@@ -196,6 +196,27 @@ def test_network_services_promoted_to_insight_and_kpi():
     assert "Open Ports" in html
 
 
+def test_passive_subdomain_intelligence_section():
+    data = dict(
+        _data(),
+        subdomains=[
+            {"name": "api.example.com", "resolved": True, "source": "AlienVault OTX, crt.sh"},
+            {"name": "dev.example.com", "resolved": False, "source": "RapidDNS"},
+        ],
+    )
+    html = render_html(data)
+    # Expanded top-level insight section, not buried in evidence.
+    assert '<section id="s-passive-subdomain-intelligence">' in html
+    assert '<details class="ev" id="s-passive-subdomain-intelligence">' not in html
+    # Placed before DNS Intelligence (infra ordering).
+    pos = html.index("s-passive-subdomain-intelligence")
+    if "s-dns-intelligence" in html:
+        assert pos < html.index("s-dns-intelligence")
+    # Summary cards prepended + source attribution visible in the table.
+    assert html.index('class="authcards"', pos) - pos < 2500
+    assert "AlienVault OTX" in html and "RapidDNS" in html
+
+
 def test_critical_findings_are_alert_panels():
     html = render_html(_data())
     assert '<div class="panel sev-high">' in html  # admin-roles finding -> High panel

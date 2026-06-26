@@ -34,6 +34,7 @@ _INSIGHT_ORDER = (
     "Authorization Intelligence",
     "Authentication Flow",
     "Authentication Risk Analysis",
+    "Passive Subdomain Intelligence",
     "DNS Intelligence",
     "Network Services",
     "Redirect Intelligence",
@@ -248,6 +249,28 @@ def _auth_cards(report: dict) -> str:
         ("Trusted Apps", c.get("trusted_apps", 0)),
         ("Roles", c.get("roles", 0)),
         ("Admin Roles", c.get("admin_roles", 0)),
+    ]
+    items = "".join(
+        f'<div class="authcard"><div class="v">{escape(str(v))}</div>'
+        f'<div class="l">{escape(label)}</div></div>'
+        for label, v in cards
+    )
+    return f'<div class="authcards">{items}</div>'
+
+
+def _subdomain_cards(report: dict) -> str:
+    """Summary cards leading the Passive Subdomain Intelligence section."""
+    si = report.get("subdomain_intelligence") or {}
+    if not si.get("hosts"):
+        return ""
+    s = si.get("summary") or {}
+    cards = [
+        ("Sources Queried", len(si.get("sources_queried") or [])),
+        ("Subdomains Found", s.get("subdomains_found", 0)),
+        ("Resolved Hosts", s.get("resolved_hosts", 0)),
+        ("Internal Services", s.get("internal_services", 0)),
+        ("Auth Hosts", s.get("authentication_hosts", 0)),
+        ("Gateway Hosts", s.get("gateway_hosts", 0)),
     ]
     items = "".join(
         f'<div class="authcard"><div class="v">{escape(str(v))}</div>'
@@ -578,6 +601,12 @@ _CUSTOM_SECTIONS = {
     "Role Intelligence": _role_collapse,
 }
 
+# Summary-card blocks prepended (above the markdown body) for designated sections.
+_PRE_CARDS = {
+    "Authentication Intelligence": _auth_cards,
+    "Passive Subdomain Intelligence": _subdomain_cards,
+}
+
 
 # ---------------------------------------------------------------------------
 # Assembly
@@ -626,8 +655,8 @@ def render_html(data: dict[str, list[dict]], **opts: Any) -> str:
     insight_html: list[str] = []
     for _, title, body in insight:
         norm = _norm(title)
-        # Auth dashboard cards lead the Authentication Intelligence section.
-        pre = _auth_cards(report) if norm.startswith("Authentication Intelligence") else ""
+        # Summary cards lead designated sections (Authentication / Passive Subdomain).
+        pre = next((fn(report) for key, fn in _PRE_CARDS.items() if norm.startswith(key)), "")
         # Custom presentation renderer for designated sections (falls back to markdown).
         renderer = next((fn for key, fn in _CUSTOM_SECTIONS.items() if norm.startswith(key)), None)
         body_html = (renderer(report) if renderer else "") or _md_to_html(body)

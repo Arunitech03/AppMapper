@@ -120,7 +120,7 @@ class Subdomain(_Child):
     name: Mapped[str] = mapped_column(String(512))
     resolved: Mapped[bool] = mapped_column(default=False)
     ip_addresses: Mapped[str | None] = mapped_column(Text)  # comma-separated
-    source: Mapped[str] = mapped_column(String(64), default="crt.sh")
+    source: Mapped[str] = mapped_column(String(255), default="crt.sh")  # comma-joined sources
 
     target: Mapped[Target] = relationship(back_populates="subdomains")
 

@@ -30,6 +30,7 @@ from modules.intelligence.recon_intelligence import build_recon_intelligence
 from modules.intelligence.redirect_intelligence import build_redirect_intelligence
 from modules.intelligence.role_visibility import build_role_visibility
 from modules.intelligence.session_inventory import build_session_inventory
+from modules.intelligence.subdomain_intelligence import build_subdomain_intelligence
 from modules.intelligence.token_inventory import build_token_inventory
 from modules.intelligence.workflow_mapper import build_workflow, render_tree
 
@@ -233,6 +234,7 @@ def build_report(
     }
     # Derived consolidation sections (over the assembled intelligence above).
     report["token_inventory"] = build_token_inventory(report)
+    report["subdomain_intelligence"] = build_subdomain_intelligence(report, data)
     report["dns_intelligence"] = build_dns_intelligence(report, data)
     report["pentest_matrix"] = build_pentest_matrix(report)
     return report

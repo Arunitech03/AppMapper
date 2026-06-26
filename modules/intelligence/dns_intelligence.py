@@ -28,6 +28,8 @@ _CLOUD_SIGS = (
     ("AWS", ("amazonaws.com", "cloudfront.net", "elb.amazonaws.com", "awsglobalaccelerator.com")),
     ("Google Cloud", ("googleapis.com", "run.app", "appspot.com", "googleusercontent.com")),
     ("Cloudflare", ("cloudflare", "workers.dev", "pages.dev")),
+    ("Fastly", ("fastly.net", "fastlylb.net")),
+    ("Akamai", ("akamai", "akamaiedge.net", "edgekey.net", "edgesuite.net")),
 )
 _AUTH_SIGS = (
     ("Keycloak", ("keycloak", "/realms/", "/auth/realms/")),

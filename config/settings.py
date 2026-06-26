@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     ai_model: str | None = None
     ai_api_key: str | None = None
 
+    # Passive subdomain intelligence: optional provider API keys
+    # (env: ASDF_SECURITYTRAILS_API_KEY, ASDF_VIRUSTOTAL_API_KEY)
+    securitytrails_api_key: str | None = None
+    virustotal_api_key: str | None = None
+
     # Logging
     log_level: str = "INFO"
     log_json: bool = False

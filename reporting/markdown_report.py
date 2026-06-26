@@ -139,6 +139,9 @@ def render_markdown(
     # Roles & access comparison
     _render_access(report, h, lines)
 
+    # Passive Subdomain Intelligence (multi-source enumeration + correlation)
+    _render_subdomain_intelligence(report, h, lines)
+
     # DNS Intelligence & Infrastructure Discovery
     _render_dns_intelligence(report, h, lines)
 
@@ -587,6 +590,40 @@ def _render_redirect_flags(flags: dict, h, lines: list[str]) -> None:
 def _clip(text: str, width: int = 70) -> str:
     text = text or ""
     return text if len(text) <= width else text[: width - 1] + "…"
+
+
+def _render_subdomain_intelligence(report: dict, h, lines: list[str]) -> None:
+    """Passive Subdomain Intelligence — multi-source enumeration + correlation."""
+    si = report.get("subdomain_intelligence") or {}
+    hosts = si.get("hosts") or []
+    if not hosts:
+        return
+
+    h(2, "Passive Subdomain Intelligence")
+    s = si.get("summary") or {}
+    queried = ", ".join(si.get("sources_queried") or []) or "—"
+    lines.append(
+        f"- **Sources Queried:** {queried} · **Subdomains Found:** "
+        f"{s.get('subdomains_found', 0)} · **Resolved Hosts:** {s.get('resolved_hosts', 0)} · "
+        f"**Internal Services:** {s.get('internal_services', 0)} · **Auth Hosts:** "
+        f"{s.get('authentication_hosts', 0)} · **Gateway Hosts:** {s.get('gateway_hosts', 0)}\n"
+    )
+
+    h(3, f"Host Inventory ({len(hosts)})")
+    lines.append("| Host | Source | Resolved | Provider | Confidence |")
+    lines.append("| --- | --- | :---: | --- | --- |")
+    for hh in hosts:
+        lines.append(
+            f"| {hh['host']} | {hh['source']} | {'Yes' if hh['resolved'] else 'No'} | "
+            f"{hh.get('provider', '—')} | {hh['confidence']} |"
+        )
+    lines.append("")
+
+    points = si.get("developer_points") or []
+    if points:
+        lines.append("**Subdomain Discussion Points**")
+        lines.extend(f"{i}. {pt}" for i, pt in enumerate(points, start=1))
+        lines.append("")
 
 
 def _render_dns_intelligence(report: dict, h, lines: list[str]) -> None:
