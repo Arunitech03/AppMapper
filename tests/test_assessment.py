@@ -83,6 +83,8 @@ def test_scan_archive_only_when_no_target(tmp_path, monkeypatch):
     from main import app
 
     monkeypatch.chdir(tmp_path)
+    # Don't let the CLI rebind global logging to CliRunner's captured (then-closed) stream.
+    monkeypatch.setattr("main.configure_logging", lambda *a, **k: None)
     start_assessment("test1", root=tmp_path)  # scaffolds target.yaml (placeholder url) + test1.db
 
     result = CliRunner().invoke(app, ["scan", "--archive"])
@@ -99,6 +101,7 @@ def test_scan_no_target_no_archive_errors(tmp_path, monkeypatch):
     from main import app
 
     monkeypatch.chdir(tmp_path)  # no active assessment, no --url/--config
+    monkeypatch.setattr("main.configure_logging", lambda *a, **k: None)
     result = CliRunner().invoke(app, ["scan"])
     assert result.exit_code == 2 and "target URL is required" in result.stdout
 
