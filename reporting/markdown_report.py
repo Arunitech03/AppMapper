@@ -139,6 +139,9 @@ def render_markdown(
     # Roles & access comparison
     _render_access(report, h, lines)
 
+    # Authenticated crawl coverage (flags form-login roles with no post-login pages)
+    _render_crawl_coverage(report, h, lines)
+
     # Passive Subdomain Intelligence (multi-source enumeration + correlation)
     _render_subdomain_intelligence(report, h, lines)
 
@@ -323,6 +326,52 @@ def _render_executive_intelligence(report: dict, h, lines: list[str]) -> None:
         "- **Feature-Gated Modules:** " + (", ".join(hf.get("feature_gated_modules", [])) or "—")
     )
     lines.append("")
+
+
+def _render_crawl_coverage(report: dict, h, lines: list[str]) -> None:
+    """Per-role authenticated-crawl coverage, flagging form-login roles that
+    captured no post-login pages (login likely failed)."""
+    from collections import Counter
+
+    users = [
+        u for u in (report.get("users") or []) if u.get("role") and u.get("role") != "anonymous"
+    ]
+    counts = Counter(e.get("role") for e in (report.get("crawl_endpoints") or []))
+    total_pages = sum(counts.values())
+    # Skip when there's nothing meaningful to report (e.g. a pure HAR/offline scan
+    # with no form-login role and no crawled pages).
+    if not users or (total_pages == 0 and not any(u.get("has_password") for u in users)):
+        return
+
+    flagged = False
+    rows: list[tuple[str, str, int, str]] = []
+    for u in users:
+        role = u["role"]
+        pages = counts.get(role, 0)
+        form_login = bool(u.get("has_password"))
+        auth = "form login" if form_login else ("HAR" if u.get("har") else "session/token")
+        if form_login and pages == 0:
+            status, flagged = "⚠️ No authenticated pages captured", True
+        else:
+            status = "OK" if pages else "—"
+        rows.append((role, auth, pages, status))
+
+    h(2, "Authenticated Crawl Coverage")
+    lines.append("| Role | Auth | Pages Captured | Status |")
+    lines.append("| --- | --- | ---: | --- |")
+    for role, auth, pages, status in rows:
+        lines.append(f"| {role} | {auth} | {pages} | {status} |")
+    lines.append("")
+    if flagged:
+        lines.append(
+            "> ⚠️ **A form-login role captured no authenticated pages — the login likely "
+            "failed.** Common causes: (1) the target serves an expired / self-signed TLS "
+            "certificate — re-run with `--insecure`; (2) the credentials are invalid; "
+            "(3) the login form is on a separate page or needs specific fields — set "
+            "`login.url` / `login.username_field` / `login.password_field` in the config; "
+            "or (4) the crawl was disabled (`--no-crawl` / `--offline`)."
+        )
+        lines.append("")
 
 
 def _render_access(report: dict, h, lines: list[str]) -> None:

@@ -133,3 +133,46 @@ Append any of these to a `scan`:
 Multi-role engagements (example 4) can also mix modes per user — `auth_mode` accepts
 `har`, `exploration`, or `storage_state`. See [`scanning.md`](scanning.md#authentication-modes)
 and [`archiving.md`](archiving.md) for the managed-workspace layout.
+
+---
+
+## Troubleshooting: the scan caught no post-login pages
+
+A form-login scan (example 2) that returns only public pages is almost always one of these.
+The report now surfaces it directly in an **Authenticated Crawl Coverage** section — a
+form-login role with `0` pages is flagged with a ⚠️ and the likely causes.
+
+1. **Expired / self-signed TLS certificate.** The authenticated crawl verifies TLS by
+   default, so a bad certificate makes every request (including the login POST) fail with
+   `CERTIFICATE_VERIFY_FAILED`. Re-run with **`--insecure`**. (Many public test targets —
+   including `demo.testfire.net` — have expired certs.)
+
+2. **The login form is on a separate page.** AppMapper auto-detects the form on the base URL
+   and then probes common login paths (`/login`, `/login.jsp`, `/signin`, `/account/login`,
+   …). If your app's form lives somewhere else, or needs specific field names, set them
+   explicitly in the config:
+
+   ```yaml
+   url: https://demo.testfire.net
+   domain: testfire.net
+   users:
+     - role: user2
+       username: sspeed
+       password: Demo1234
+       auth_mode: login
+       login:
+         url: /doLogin              # the form ACTION (POST target), not the form's page
+         username_field: uid
+         password_field: passw
+         extra_fields: { btnSubmit: "Login" }
+         success_contains: "Sign Off"   # text only present once authenticated
+   ```
+   ```bash
+   python main.py scan --config assessments/<name>/target.yaml --insecure --report-dir <name>
+   ```
+
+3. **Invalid credentials**, or **the crawl was disabled** (`--no-crawl` / `--offline`).
+
+> Tip: the most robust option for tricky logins (SSO, MFA, multi-step, heavy JS) is the
+> browser flow (examples 5 & 6) — you log in by hand and AppMapper reuses the real session;
+> still add `--insecure` to the scan when the cert is bad.

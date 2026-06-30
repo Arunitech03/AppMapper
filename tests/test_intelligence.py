@@ -91,6 +91,40 @@ def test_api_analyzer_records_host_from_full_url():
     assert _endpoint_url({"path": "/spec-only", "hosts": ""}) == "/spec-only"
 
 
+def _coverage(report: dict) -> str:
+    from reporting.markdown_report import _render_crawl_coverage
+
+    lines: list[str] = []
+    _render_crawl_coverage(report, lambda n, t: lines.append(f"{'#' * n} {t}"), lines)
+    return "\n".join(lines)
+
+
+def test_crawl_coverage_warns_on_failed_form_login():
+    out = _coverage({"users": [{"role": "user2", "has_password": True}], "crawl_endpoints": []})
+    assert "Authenticated Crawl Coverage" in out
+    assert "No authenticated pages captured" in out
+    assert "--insecure" in out and "login.url" in out
+
+
+def test_crawl_coverage_ok_when_pages_captured():
+    out = _coverage(
+        {
+            "users": [{"role": "user2", "has_password": True}],
+            "crawl_endpoints": [{"role": "user2"}, {"role": "user2"}, {"role": "anonymous"}],
+        }
+    )
+    assert "Authenticated Crawl Coverage" in out and "| user2 |" in out
+    assert "No authenticated pages" not in out
+
+
+def test_crawl_coverage_skipped_for_har_only_scan():
+    # No form-login role and no crawl pages (pure HAR/offline) -> no section, no false alarm.
+    out = _coverage(
+        {"users": [{"role": "user", "har": "x.har", "has_password": False}], "crawl_endpoints": []}
+    )
+    assert out == ""
+
+
 def test_workflow_and_tree():
     data = {
         "crawl_endpoints": [

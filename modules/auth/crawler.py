@@ -41,6 +41,22 @@ RE_SKIP_LINK = re.compile(r"logout|signout|sign-out|log-out|logoff", re.IGNORECA
 RE_FORM = re.compile(r"<form\b[^>]*>.*?</form>", re.IGNORECASE | re.DOTALL)
 RE_FORM_ACTION = re.compile(r"action=[\"']([^\"']*)[\"']", re.IGNORECASE)
 RE_FORM_METHOD = re.compile(r"method=[\"']([^\"']*)[\"']", re.IGNORECASE)
+# Common login-page paths probed (in order) when the base page has no password
+# form — many apps host the form on a dedicated page (e.g. /login.jsp). Passive:
+# a plain GET of each candidate, stopping at the first page with a password input.
+LOGIN_PATHS = (
+    "login",
+    "login.jsp",
+    "login.php",
+    "login.html",
+    "login.aspx",
+    "signin",
+    "sign-in",
+    "account/login",
+    "auth/login",
+    "users/sign_in",
+    "wp-login.php",
+)
 RE_INPUT = re.compile(r"<(?:input|select|textarea)\b[^>]*>", re.IGNORECASE)
 RE_INPUT_NAME = re.compile(r"name=[\"']([^\"']+)[\"']", re.IGNORECASE)
 RE_INPUT_TYPE = re.compile(r"type=[\"']([^\"']+)[\"']", re.IGNORECASE)
@@ -158,21 +174,21 @@ class AuthCrawlerModule(BaseModule):
         login_url = urljoin(ctx.target.url + "/", cfg.url) if cfg.url else None
         u_field, p_field = cfg.username_field, cfg.password_field
 
-        # Auto-detect the login form from the base page when not fully specified.
+        # Auto-detect the login form when not fully specified: the base page first,
+        # then common login paths (the form often lives on a dedicated page).
         if not (login_url and u_field and p_field):
-            try:
-                page = await client.get(ctx.target.url)
-                detected = self._detect_login_form(ctx.target.url, page.text or "")
-            except httpx.HTTPError as exc:
-                self.log.warning("crawl.login_detect_failed", role=user.role, error=str(exc))
-                detected = None
+            detected = await self._probe_login_form(client, ctx.target.url)
             if detected:
                 login_url = login_url or detected[0]
                 u_field = u_field or detected[1]
                 p_field = p_field or detected[2]
 
         if not (login_url and u_field and p_field):
-            self.log.warning("crawl.login_unresolved", role=user.role)
+            self.log.warning(
+                "crawl.login_unresolved",
+                role=user.role,
+                hint="no login form on base URL or common login paths; set login.url/fields",
+            )
             return None
 
         data = {u_field: user.username, p_field: user.password, **cfg.extra_fields}
@@ -190,6 +206,28 @@ class AuthCrawlerModule(BaseModule):
         self.log.info("crawl.login", role=user.role, url=login_url, status=resp.status_code, ok=ok)
         # The final URL (after redirects) is the post-login landing page.
         return str(resp.url) if ok else None
+
+    async def _probe_login_form(
+        self, client: httpx.AsyncClient, base_url: str
+    ) -> tuple[str, str, str] | None:
+        """Detect a login form on the base page, then on common login paths.
+
+        GETs each candidate with the crawl client (so any session cookie is
+        established before the login POST) and returns the first password form found.
+        """
+        candidates = [base_url] + [urljoin(base_url + "/", p) for p in LOGIN_PATHS]
+        for url in candidates:
+            try:
+                page = await client.get(url)
+            except httpx.HTTPError as exc:
+                self.log.warning("crawl.login_detect_failed", url=url, error=str(exc))
+                continue
+            detected = self._detect_login_form(str(page.url), page.text or "")
+            if detected:
+                if url != base_url:
+                    self.log.info("crawl.login_form_found", url=str(page.url))
+                return detected
+        return None
 
     def _detect_login_form(self, page_url: str, html: str) -> tuple[str, str, str] | None:
         """Find the first form with a password input; return (action, user, pass)."""
@@ -210,7 +248,7 @@ class AuthCrawlerModule(BaseModule):
             action_m = RE_FORM_ACTION.search(form_html)
             action = action_m.group(1) if action_m else page_url
             return (
-                urljoin(page_url + "/", action) if action else page_url,
+                urljoin(page_url, action) if action else page_url,
                 user_field or "username",
                 pw,
             )

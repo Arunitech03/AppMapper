@@ -31,6 +31,7 @@ _INSIGHT_ORDER = (
     "Authentication Artifacts Summary",
     "Role Intelligence",
     "Application Access Summary",
+    "Authenticated Crawl Coverage",
     "Authorization Intelligence",
     "Authentication Flow",
     "Authentication Risk Analysis",
