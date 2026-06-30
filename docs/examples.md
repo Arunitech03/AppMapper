@@ -63,10 +63,11 @@ python main.py scan --archive           # close out: archive everything, then cl
 python main.py start nextclient         # fresh engagement
 ```
 
-`scan --archive` sweeps all artifacts (reports, captures, exploration, sessions, and the
-engagement DB) into `archives/<target>_<timestamp>/`, then **clears the active assessment
-pointer** — `status` reports none, and the workspace is clean for the next `start`.
-(`asdf.db` is always protected and never archived.)
+`scan --archive` sweeps all artifacts (reports, captures, exploration, sessions, and **every
+engagement DB in the repo root** — any `*.db` / `*.sqlite` / `*.sqlite3` except `asdf.db`)
+into `archives/<target>_<timestamp>/`, then **clears the active assessment pointer** —
+`status` reports none, and the workspace is clean for the next `start`. (`asdf.db` is always
+protected and never archived.)
 
 ## 1. URL alone (anonymous discovery)
 

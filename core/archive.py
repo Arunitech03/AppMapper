@@ -120,9 +120,10 @@ def archive_assessment(
     subfolders under ``reports/`` (e.g. ``reports/rni/``); the whole ``reports/`` tree
     is moved recursively, so no per-output-dir special handling is needed.
 
-    Also sweeps the engagement's own files out of the repo root: the assessment
-    ``database_path`` (never ``asdf.db``) into ``databases/``, any stray root-level
-    ``*.har`` into ``captures/``, and a **copy** of ``config_path`` into
+    Also sweeps the engagement's own files out of the repo root: the scan's
+    ``database_path`` **and every stray root-level engagement DB** (``*.db`` /
+    ``*.sqlite`` / ``*.sqlite3``, never ``asdf.db``) into ``databases/``, any stray
+    root-level ``*.har`` into ``captures/``, and a **copy** of ``config_path`` into
     ``config_snapshot/`` (the definition stays reusable). ``assessment_name`` labels
     the engagement (defaults to the config folder name, else the sanitized target).
     """
@@ -186,24 +187,35 @@ def archive_assessment(
 
 
 def _archive_database(root: Path, dest: Path, database_path: str | Path | None) -> list[str]:
-    """Move the assessment's sqlite DB into ``databases/``; never touch ``asdf.db``.
+    """Move the scan's DB **and every stray engagement DB in the repo root** into
+    ``databases/``; never touch ``asdf.db``.
 
-    Returns the list of archived database filenames (empty if none/protected/missing).
+    Returns the list of archived database filenames.
     """
-    if not database_path:
-        return []
-    db = Path(database_path)
-    db = (db if db.is_absolute() else root / db).resolve()
-    if db.name == _PROTECTED_DB or not db.is_file():
-        return []
+    archives_dir = (root / "archives").resolve()
+    candidates: list[Path] = []
+    if database_path:  # the scan's own DB (may be absolute / outside root)
+        candidates.append(Path(database_path))
+    for suffix in _DB_SUFFIXES:  # any *.db / *.sqlite / *.sqlite3 sitting at the root
+        candidates.extend(root.glob(f"*{suffix}"))
+
     target_dir = dest / "databases"
-    target_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        shutil.move(str(db), str(target_dir / db.name))
-        return [db.name]
-    except (OSError, shutil.Error) as exc:
-        log.warning("archive.db_move_failed", db=str(db), error=str(exc))
-        return []
+    moved: list[str] = []
+    seen: set[Path] = set()
+    for db in candidates:
+        db = (db if db.is_absolute() else root / db).resolve()
+        if db in seen or db.name == _PROTECTED_DB or not db.is_file():
+            continue
+        if db == dest or dest in db.parents or archives_dir in db.parents:
+            continue  # never re-archive something already inside archives/
+        seen.add(db)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.move(str(db), str(target_dir / db.name))
+            moved.append(db.name)
+        except (OSError, shutil.Error) as exc:
+            log.warning("archive.db_move_failed", db=str(db), error=str(exc))
+    return moved
 
 
 def _archive_stray_hars(root: Path, dest: Path) -> int:

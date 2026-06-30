@@ -77,15 +77,17 @@ What gets swept, and the rules:
 |--------|---------------------|-------|
 | `captures/`, `exploration/`, `reports/`, `sessions/`, `screenshots/`, `downloads/`, `logs/`, `browser_intelligence/`, `js_intelligence/`, `runtime_config/` | same name | moved recursively (so `reports/<name>/…` is preserved) |
 | root-level `*.har` (outside `captures/`) | `captures/` | logged: *"HAR file discovered outside captures directory. Archiving automatically."* |
-| the scan's assessment DB | `databases/` | **never** `asdf.db` (protected) |
+| the scan's DB **+ every stray root-level engagement DB** (`*.db` / `*.sqlite` / `*.sqlite3`) | `databases/` | **never** `asdf.db` (protected) |
 | the `--config` file used | `config_snapshot/` | **copied**, not moved — definitions stay reusable |
 
-Never touched: `archives/`, `current_assessment[.txt]`, `.venv`, `.git`, and
-`asdf.db`. Archiving cannot recurse into prior archives.
+Never touched: `archives/`, `current_assessment[.txt]`, `.active_assessment.json`,
+`.venv`, `.git`, and `asdf.db`. Archiving cannot recurse into prior archives.
 
-> Database scope: `scan --archive` archives **only the DB this scan used**
-> (`--db`, defaulting away from `asdf.db`). Other engagements' DBs in the root are
-> left alone for their own archive runs.
+> Database scope: `scan --archive` archives the scan's own DB **and sweeps every other
+> engagement DB sitting in the repo root** (any `*.db` / `*.sqlite` / `*.sqlite3` except
+> the protected `asdf.db`) into `databases/`, so the workspace is left fully clean for the
+> next engagement. With the `start`/active-assessment workflow it also clears the active
+> assessment pointer afterward.
 
 ---
 

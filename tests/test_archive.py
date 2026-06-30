@@ -103,6 +103,24 @@ def test_archive_includes_database(tmp_path):
     assert meta["database_files"] == ["demo.db"]
 
 
+def test_archive_sweeps_all_stray_engagement_dbs(tmp_path):
+    _seed_workspace(tmp_path)
+    (tmp_path / "testfire.db").write_text("sqlite")  # the scan's DB
+    (tmp_path / "oldclient.db").write_text("sqlite")  # a stray engagement DB
+    (tmp_path / "legacy.sqlite3").write_text("sqlite")  # another, different suffix
+    (tmp_path / "asdf.db").write_text("app-state")  # protected
+
+    dest = archive_assessment(
+        "https://demo.example.com", repo_root=tmp_path, database_path="testfire.db"
+    )
+    db_dir = dest / "databases"
+    for name in ("testfire.db", "oldclient.db", "legacy.sqlite3"):
+        assert (db_dir / name).exists() and not (tmp_path / name).exists()
+    assert (tmp_path / "asdf.db").exists()  # never archived
+    meta = json.loads((dest / "assessment_metadata.json").read_text())
+    assert set(meta["database_files"]) == {"testfire.db", "oldclient.db", "legacy.sqlite3"}
+
+
 def test_archive_protects_asdf_db(tmp_path):
     _seed_workspace(tmp_path)
     (tmp_path / "asdf.db").write_text("app-state")
