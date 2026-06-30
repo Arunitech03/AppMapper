@@ -63,8 +63,10 @@ archives/
     ├── sessions/                   # Playwright storage_state, <role>_browser/
     ├── screenshots/  downloads/  logs/
     ├── browser_intelligence/  js_intelligence/  runtime_config/
-    ├── databases/                  # the assessment DB (never asdf.db)
+    ├── databases/                  # the assessment DB(s) (never asdf.db)
     │   └── demo.db
+    ├── assessment/                 # the MOVED assessments/<name>/ definition (close-out)
+    │   └── demo/{target.yaml, captures/*.har}
     └── assessment_metadata.json
 ```
 
@@ -78,7 +80,8 @@ What gets swept, and the rules:
 | `captures/`, `exploration/`, `reports/`, `sessions/`, `screenshots/`, `downloads/`, `logs/`, `browser_intelligence/`, `js_intelligence/`, `runtime_config/` | same name | moved recursively (so `reports/<name>/…` is preserved) |
 | root-level `*.har` (outside `captures/`) | `captures/` | logged: *"HAR file discovered outside captures directory. Archiving automatically."* |
 | the scan's DB **+ every stray root-level engagement DB** (`*.db` / `*.sqlite` / `*.sqlite3`) | `databases/` | **never** `asdf.db` (protected) |
-| the `--config` file used | `config_snapshot/` | **copied**, not moved — definitions stay reusable |
+| the `--config` file used | `config_snapshot/` | **copied** (canonical record of the config used) |
+| the active assessment's `assessments/<name>/` folder | `assessment/<name>/` | **moved** on close-out (`scan --archive` / `archive` with an active assessment) — target.yaml + its `captures/*.har` (live tokens) leave the workspace; only folders directly under `assessments/` are moved |
 
 Never touched: `archives/`, `current_assessment[.txt]`, `.active_assessment.json`,
 `.venv`, `.git`, and `asdf.db`. Archiving cannot recurse into prior archives.
