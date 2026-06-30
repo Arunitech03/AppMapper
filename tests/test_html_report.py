@@ -217,6 +217,23 @@ def test_passive_subdomain_intelligence_section():
     assert "AlienVault OTX" in html and "RapidDNS" in html
 
 
+def test_access_matrix_promoted_to_insight():
+    # The HAR-derived Access Matrix + role-visibility sections render expanded
+    # (top-level insights), not collapsed in the Evidence accordion.
+    from reporting.html_report import _insight_rank
+
+    for title in (
+        "Access Matrix — Role Visibility",
+        "Application Visibility (8)",
+        "API Visibility (28)",
+        "Role Exclusive Applications",
+        "Role Exclusive APIs",
+        "Shared Applications (2)",
+        "Shared APIs (8)",
+    ):
+        assert _insight_rank(title) is not None, title
+
+
 def test_critical_findings_are_alert_panels():
     html = render_html(_data())
     assert '<div class="panel sev-high">' in html  # admin-roles finding -> High panel
