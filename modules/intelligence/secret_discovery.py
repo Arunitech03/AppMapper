@@ -14,10 +14,9 @@ from __future__ import annotations
 
 import ipaddress
 import re
-from urllib.parse import urlparse
 
 from models.schemas import IntelFinding
-from modules.auth.masking import mask_secret
+from modules.auth.masking import mask_secret, redact_url
 from modules.intelligence.confidence import HIGH, MEDIUM
 
 # --- pattern library --------------------------------------------------------
@@ -199,6 +198,8 @@ def discover_secrets(corpus: list[dict], *, base_domain: str = "") -> list[Intel
     """Scan corpus items ``{url, content_type, source, text}`` for findings.
 
     De-duplicates by (kind, masked-value, location). Returns masked findings.
+    ``base_domain`` is accepted for call-site compatibility; locations are recorded
+    as full URLs (with query secrets redacted) regardless of origin.
     """
     findings: dict[tuple, IntelFinding] = {}
 
@@ -222,7 +223,7 @@ def discover_secrets(corpus: list[dict], *, base_domain: str = "") -> list[Intel
         text = item.get("text") or ""
         if not text:
             continue
-        location = _short_location(item.get("url", ""), base_domain)
+        location = _finding_location(item.get("url", ""))
         source = item.get("source", "")
 
         for kind, name, category, severity, rx in _PATTERNS:
@@ -289,19 +290,15 @@ def discover_secrets(corpus: list[dict], *, base_domain: str = "") -> list[Intel
     return sorted(findings.values(), key=lambda f: (f.category, f.name, f.location or ""))
 
 
-def _short_location(url: str, base_domain: str = "") -> str:
-    """Path within the target host; full ``host/path`` for cross-host assets.
+def _finding_location(url: str) -> str:
+    """Full source URL for a finding, with secret-bearing query values redacted.
 
-    HAR/Burp responses are often loaded cross-origin (e.g. an SSO host); keeping the
-    host for those prevents mis-attributing a finding to the scanned application.
+    Reporting the full URL (scheme/host/path) — not just the path — prevents
+    mis-attributing cross-origin assets (e.g. an SSO host's JS) to the scanned app.
     """
     if not url:
         return ""
-    p = urlparse(url)
-    path = p.path or url
-    host = p.netloc
-    loc = f"{host}{path}" if host and base_domain and host.lower() != base_domain.lower() else path
-    return loc[:300] or url
+    return redact_url(url)[:300] or url
 
 
 def group_findings(findings: list[IntelFinding]) -> dict[str, list[IntelFinding]]:

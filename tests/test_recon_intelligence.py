@@ -84,14 +84,21 @@ def test_real_private_key_is_flagged():
     assert body not in (pk[0].value_masked or "")  # masked, never the full key
 
 
-def test_secret_location_keeps_cross_host():
+def test_secret_location_is_full_url():
     body = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQ0123456789abcdef" * 3
     pem = f"-----BEGIN PRIVATE KEY-----\n{body}\n-----END PRIVATE KEY-----"
-    corpus = _corpus(pem, url="https://sso.xylem.com/assets/scripts/signals-sdk-5.5.0.js")
-    findings = discover_secrets(corpus, base_domain="walla.datalake-qa.xylem-vue.com")
-    pk = next(f for f in findings if f.kind == "private_key")
-    # cross-host asset keeps its host so it isn't mis-attributed to the scanned app
-    assert pk.location == "sso.xylem.com/assets/scripts/signals-sdk-5.5.0.js"
+    url = "https://sso.xylem.com/assets/scripts/signals-sdk-5.5.0.js"
+    pk = next(f for f in discover_secrets(_corpus(pem, url=url)) if f.kind == "private_key")
+    # full URL (scheme+host+path), not a bare path — no mis-attribution to the scanned app
+    assert pk.location == url
+
+
+def test_secret_location_redacts_query_secrets():
+    js = 'const k = "AIzaSyA1234567890abcdefghijklmnopqrstuv";'
+    url = "https://app.example.com/cfg.js?access_token=topsecretvalue123&v=3"
+    f = next(f for f in discover_secrets(_corpus(js, url=url)) if f.name == "Google API Key")
+    assert f.location.startswith("https://app.example.com/cfg.js")
+    assert "topsecretvalue123" not in f.location and "access_token=REDACTED" in f.location
 
 
 # --- F3 / F4: routes + hidden API refs ------------------------------------
