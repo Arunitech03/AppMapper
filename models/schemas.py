@@ -318,6 +318,7 @@ class ApiIntel(BaseModel):
     id_parameters: list[str] = Field(default_factory=list)
     authz_sensitive: bool = False
     sensitivity_reason: str | None = None
+    hosts: list[str] = Field(default_factory=list)  # hosts this path was observed on
 
 
 class ChecklistItem(BaseModel):

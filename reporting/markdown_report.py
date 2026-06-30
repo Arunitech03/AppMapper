@@ -1105,16 +1105,33 @@ def _render_tier2(report: dict, h, lines: list[str]) -> None:
     ai = report.get("api_intelligence", [])
     h(2, f"API Inventory & Intelligence ({len(ai)})")
     if ai:
-        lines.append("| Path | Methods | Parameters | Authz-sensitive |")
+        lines.append("| Endpoint | Methods | Parameters | Authz-sensitive |")
         lines.append("| --- | --- | --- | :---: |")
         for a in ai:
             methods = a.get("methods") or ""
             params = a.get("parameters") or ""
             flag = "⚠️" if a.get("authz_sensitive") else ""
-            lines.append(f"| {a['path']} | {methods} | {params} | {flag} |")
+            lines.append(f"| {_endpoint_url(a)} | {methods} | {params} | {flag} |")
     else:
         lines.append("_No APIs discovered._")
     lines.append("")
+
+
+def _endpoint_url(a: dict) -> str:
+    """Full endpoint URL from an api_intel row: ``https://host/path``.
+
+    ``hosts`` arrives as a comma-joined string (DB dump) or a list. Spec-only paths
+    (no observed host) stay path-only; multi-host paths show the count + hosts.
+    """
+    raw = a.get("hosts") or []
+    hosts = [h for h in (raw.split(",") if isinstance(raw, str) else raw) if h]
+    path = a.get("path", "")
+    if len(hosts) == 1:
+        return f"https://{hosts[0]}{path}"
+    if len(hosts) > 1:
+        shown = ", ".join(hosts[:3]) + ("…" if len(hosts) > 3 else "")
+        return f"{path} ({len(hosts)} hosts: {shown})"
+    return path
 
 
 def _render_asset_intel(report: dict, h, lines: list[str]) -> None:

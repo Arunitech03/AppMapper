@@ -66,6 +66,31 @@ def test_api_analyzer_flags_authz_sensitive():
     assert intel["/api/health"].authz_sensitive is False
 
 
+def test_api_analyzer_records_host_from_full_url():
+    data = {
+        "api_endpoints": [],
+        "crawl_endpoints": [
+            {"url": "https://gw.example.com/api/orders", "path": "/api/orders", "source": "api"}
+        ],
+        "har_requests": [
+            {"url": "https://cognito-identity.us-east-1.amazonaws.com/api/orders", "method": "POST"}
+        ],
+        "burp_requests": [],
+    }
+    orders = {a.path: a for a in analyze_apis(data)}["/api/orders"]
+    # host captured from both the crawl URL and the HAR request URL
+    assert orders.hosts == [
+        "cognito-identity.us-east-1.amazonaws.com",
+        "gw.example.com",
+    ]
+    # renderer builds a full URL for a single-host endpoint
+    from reporting.markdown_report import _endpoint_url
+
+    assert _endpoint_url({"path": "/x", "hosts": "gw.example.com"}) == "https://gw.example.com/x"
+    assert _endpoint_url({"path": "/x", "hosts": "a.com,b.com"}) == "/x (2 hosts: a.com, b.com)"
+    assert _endpoint_url({"path": "/spec-only", "hosts": ""}) == "/spec-only"
+
+
 def test_workflow_and_tree():
     data = {
         "crawl_endpoints": [

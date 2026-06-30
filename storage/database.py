@@ -91,6 +91,7 @@ class Database:
             "crawl_endpoints": {"redirect_chain": "TEXT"},
             "idp_info": {"realm": "VARCHAR(256)"},
             "sensitive_functions": {"confidence": "VARCHAR(16)"},
+            "api_intel": {"hosts": "TEXT"},
             "directories": {
                 "confidence": "VARCHAR(16)",
                 "expected_content_type": "VARCHAR(128)",
@@ -413,6 +414,7 @@ class Database:
                 id_parameters=_csv(i.id_parameters),
                 authz_sensitive=i.authz_sensitive,
                 sensitivity_reason=i.sensitivity_reason,
+                hosts=_csv(i.hosts),
             )
             for i in items
         ]
@@ -677,6 +679,7 @@ class Database:
                         "id_parameters",
                         "authz_sensitive",
                         "sensitivity_reason",
+                        "hosts",
                     ],
                 ),
                 "checklist_items": dump(

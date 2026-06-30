@@ -63,17 +63,23 @@ def analyze_apis(data: dict) -> list[ApiIntel]:
         key = _templatize(path)
         return agg.setdefault(
             key,
-            {"methods": set(), "parameters": set(), "response_types": set(), "raw_paths": set()},
+            {
+                "methods": set(),
+                "parameters": set(),
+                "response_types": set(),
+                "raw_paths": set(),
+                "hosts": set(),
+            },
         )
 
-    # OpenAPI/Swagger/GraphQL endpoints discovered in Tier 1.
+    # OpenAPI/Swagger/GraphQL endpoints discovered in Tier 1 (spec-relative; no host).
     for ep in data.get("api_endpoints", []):
         b = bucket(ep["path"])
         b["methods"].add((ep.get("method") or "GET").upper())
         b["parameters"].update(_csv_to_list(ep.get("parameters")))
         b["raw_paths"].add(ep["path"])
 
-    # Crawl endpoints that look like APIs.
+    # Crawl endpoints that look like APIs (carry the full request URL → host).
     for ep in data.get("crawl_endpoints", []):
         if ep.get("source") == "api" or _is_api_path(ep["path"], ep.get("content_type")):
             b = bucket(ep["path"])
@@ -81,22 +87,25 @@ def analyze_apis(data: dict) -> list[ApiIntel]:
             if ep.get("content_type"):
                 b["response_types"].add(ep["content_type"])
             b["raw_paths"].add(ep["path"])
+            b["hosts"].add(urlparse(ep.get("url") or "").netloc)
 
     # HAR / Burp captured requests against API paths.
     for r in data.get("har_requests", []):
-        path = urlparse(r["url"]).path
-        if _is_api_path(path, r.get("response_content_type")):
-            b = bucket(path)
+        parsed = urlparse(r["url"])
+        if _is_api_path(parsed.path, r.get("response_content_type")):
+            b = bucket(parsed.path)
             b["methods"].add((r.get("method") or "GET").upper())
             b["parameters"].update(_csv_to_list(r.get("query_params")))
+            b["hosts"].add(parsed.netloc)
             if r.get("response_content_type"):
                 b["response_types"].add(r["response_content_type"])
     for r in data.get("burp_requests", []):
-        path = urlparse(r["url"]).path
-        if _is_api_path(path):
-            b = bucket(path)
+        parsed = urlparse(r["url"])
+        if _is_api_path(parsed.path):
+            b = bucket(parsed.path)
             b["methods"].add((r.get("method") or "GET").upper())
             b["parameters"].update(_csv_to_list(r.get("parameters")))
+            b["hosts"].add(parsed.netloc)
 
     results: list[ApiIntel] = []
     for path, b in sorted(agg.items()):
@@ -121,6 +130,7 @@ def analyze_apis(data: dict) -> list[ApiIntel]:
                 id_parameters=id_params,
                 authz_sensitive=authz,
                 sensitivity_reason=reason,
+                hosts=sorted(h for h in b["hosts"] if h),
             )
         )
     return results

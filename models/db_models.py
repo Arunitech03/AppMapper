@@ -358,6 +358,7 @@ class ApiIntelRow(_Child):
     id_parameters: Mapped[str | None] = mapped_column(Text)
     authz_sensitive: Mapped[bool] = mapped_column(default=False)
     sensitivity_reason: Mapped[str | None] = mapped_column(Text)
+    hosts: Mapped[str | None] = mapped_column(Text)  # comma-joined hosts for this path
 
     target: Mapped[Target] = relationship(back_populates="api_intel")
 
