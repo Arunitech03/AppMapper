@@ -452,6 +452,24 @@ def scan(
         if target is not None and defaulted_config and target.url.rstrip("/") == _SCAFFOLD_URL:
             target = None
 
+    # HAR auto-discovery: no usable target config (or a config with no users), but the
+    # active assessment has HARs in captures/ → build roles from the HAR filenames and
+    # infer the target URL from the captured traffic. (Explicit --url/--config win.)
+    active = active_name()
+    if active and url is None and (target is None or not target.users):
+        from core.assessment import build_target_from_hars
+
+        har_target = build_target_from_hars(active)
+        if har_target is not None:
+            if target is None:
+                target = har_target
+            else:  # keep the config's url/domain, just add the HAR-derived roles
+                target.users = har_target.users
+            console.print(
+                f"[dim]Auto-discovered {len(target.users)} role(s) from HARs in "
+                f"assessments/{active}/captures/ → target {target.url}[/dim]"
+            )
+
     if target is None:
         # Nothing to scan. With --archive, archive whatever's present and reset the
         # active assessment (close-out); otherwise it's a usage error.

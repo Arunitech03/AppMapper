@@ -50,6 +50,21 @@ reports/testfire/
 └── report_2.html      report_2.md      report_2.json    ← scan #2
 ```
 
+**HAR auto-discovery (no yaml needed).** If the active assessment has HARs in its
+`captures/` folder but no `users:` configured (or only the placeholder `target.yaml`),
+`scan` builds one role per HAR — role = filename with a trailing `_<assessment>` stripped
+(`user1_rni.har` → role `user1`) — and **infers the target URL from the captured traffic**.
+So you can skip the yaml entirely:
+
+```bash
+python main.py start rni
+cp *.har assessments/rni/captures/      # drop the HAR(s) in
+python main.py scan --offline           # roles + target auto-built from the HARs
+```
+
+Explicit `--url` / `--config` always win, and a `target.yaml` with a real `users:` list
+takes precedence over auto-discovery.
+
 **With an active assessment, `scan` needs no target flags** — it defaults `--config` to
 `assessments/<name>/target.yaml`, the DB to `assessments/<name>/<name>.db`, and reports to `reports/<name>/`.
 So once you've edited the config, the whole lifecycle is just:

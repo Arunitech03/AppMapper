@@ -87,6 +87,58 @@ def clear_active(*, root: str | Path | None = None) -> str | None:
     return name
 
 
+# Hosts ignored when inferring the target URL from captured traffic (telemetry/CDN/fonts).
+_HOST_NOISE = (
+    "datadoghq",
+    "google-analytics",
+    "googletagmanager",
+    "gstatic",
+    "fonts.googleapis",
+    "doubleclick",
+    "sentry",
+    "newrelic",
+)
+
+
+def build_target_from_hars(name: str, *, root: str | Path | None = None):
+    """Build a TargetInput from ``assessments/<name>/captures/*.har`` — one role per
+    HAR (role = filename, trailing ``_<name>`` stripped), with the target URL inferred
+    from the most-requested in-scope host. Returns None when there are no HARs.
+    """
+    base = _root(root)
+    hars = sorted((base / "assessments" / name / "captures").glob("*.har"))
+    if not hars:
+        return None
+
+    from collections import Counter
+    from urllib.parse import urlparse
+
+    from models.schemas import TargetInput, UserCredential
+    from modules.intelligence.domain_classifier import registrable_domain
+    from parsers.har_parser import parse_har
+
+    hosts: Counter = Counter()
+    users: list[UserCredential] = []
+    for har in hars:
+        role = har.stem
+        if role.endswith("_" + name) and len(role) > len(name) + 1:
+            role = role[: -len(name) - 1]
+        try:
+            items = parse_har(str(har))
+        except (OSError, ValueError):
+            items = []
+        for it in items:
+            host = urlparse(it.url).netloc.lower()
+            if host and not any(n in host for n in _HOST_NOISE):
+                hosts[host] += 1
+        users.append(UserCredential(role=role, har=str(har), auth_mode="har"))
+
+    if not hosts:
+        return None
+    top_host = hosts.most_common(1)[0][0]
+    return TargetInput(url=f"https://{top_host}", domain=registrable_domain(top_host), users=users)
+
+
 def start_assessment(name: str, *, root: str | Path | None = None) -> dict:
     """Scaffold ``assessments/<name>/`` + ``<name>.db`` and set it active.
 

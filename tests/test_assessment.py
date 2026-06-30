@@ -60,6 +60,37 @@ def test_settings_falls_back_to_active_db(tmp_path, monkeypatch):
     assert _settings("other.db", None, "INFO", False).database_url == "sqlite:///other.db"
 
 
+def test_build_target_from_hars(tmp_path):
+    import json
+
+    from core.assessment import build_target_from_hars
+
+    cap = tmp_path / "assessments" / "rni" / "captures"
+    cap.mkdir(parents=True)
+    har = {
+        "log": {
+            "entries": [
+                {"request": {"url": "https://app.sensus.com/a"}},
+                {"request": {"url": "https://app.sensus.com/b"}},
+                {"request": {"url": "https://browser-intake-datadoghq.com/rum"}},  # noise
+            ]
+        }
+    }
+    (cap / "user1_rni.har").write_text(json.dumps(har))
+    (cap / "user2_rni.har").write_text(json.dumps(har))
+
+    t = build_target_from_hars("rni", root=tmp_path)
+    assert t is not None
+    # role = filename with the trailing "_rni" stripped; one role per HAR; auth_mode=har
+    assert {u.role for u in t.users} == {"user1", "user2"}
+    assert all(u.auth_mode == "har" and u.har.endswith(".har") for u in t.users)
+    # URL inferred from the most-requested in-scope host (telemetry filtered out)
+    assert t.url == "https://app.sensus.com" and t.domain == "sensus.com"
+
+    # No HARs -> None.
+    assert build_target_from_hars("missing", root=tmp_path) is None
+
+
 def test_clear_active(tmp_path):
     set_active("testfire", "testfire.db", root=tmp_path)
     assert clear_active(root=tmp_path) == "testfire"  # returns what it cleared
