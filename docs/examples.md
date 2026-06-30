@@ -149,6 +149,7 @@ Append any of these to a `scan`:
 | `--browser-tech` | Boot the app in a real browser and fingerprint the runtime stack (needs Playwright) |
 | `--no-crawl` | Analyze captures/discovery only — no authenticated crawl traffic |
 | `--offline` | **Zero** traffic to the target — analyze captures only |
+| `--keep-history` | Keep a numbered snapshot (`report_<N>.{html,md,json}`) each run alongside the latest `report.*` — track successive scans in the same assessment without overwriting |
 | `--archive` | Sweep all artifacts into a timestamped `archives/<target>_<ts>/` folder when done |
 
 **Prerequisite for the browser workflows (5 & 6):** Playwright must be installed —

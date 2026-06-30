@@ -25,19 +25,48 @@ __all__ = [
 ]
 
 
+def _next_version(out: Path) -> int:
+    """Next ``report_<N>`` index for this folder (max existing + 1)."""
+    import re
+
+    highest = 0
+    for p in out.glob("report_*.html"):
+        m = re.fullmatch(r"report_(\d+)\.html", p.name)
+        if m:
+            highest = max(highest, int(m.group(1)))
+    return highest + 1
+
+
 def write_reports(
-    data: dict[str, list[dict]], output_dir: str | Path, **summary_opts: Any
+    data: dict[str, list[dict]],
+    output_dir: str | Path,
+    *,
+    version: bool = False,
+    **summary_opts: Any,
 ) -> dict[str, Path]:
     """Write the consolidated Tier-2 report set + graph exports.
 
     Produces ``report.md`` / ``report.html`` / ``report.json`` plus
     ``graph.{json,graphml,drawio}``. Also keeps Tier-1 ``output.{md,json}`` for
     back-compat. Returns a name->path mapping.
+
+    When ``version`` is set, each run also keeps a numbered snapshot
+    (``report_<N>.{json,md,html}``) alongside the always-latest ``report.*`` — so
+    successive scans in the same folder don't overwrite previous results.
     """
+    out = Path(output_dir)
     paths: dict[str, Path] = {}
     paths["json"] = write_json_report(data, output_dir, filename="report.json", **summary_opts)
     paths["md"] = write_markdown_report(data, output_dir, filename="report.md", **summary_opts)
     paths["html"] = write_html_report(data, output_dir, filename="report.html", **summary_opts)
+    if version:
+        import shutil
+
+        n = _next_version(out)
+        for ext in ("json", "md", "html"):
+            dst = out / f"report_{n}.{ext}"
+            shutil.copy2(out / f"report.{ext}", dst)
+            paths[f"snapshot_{ext}"] = dst
     # Back-compat Tier-1 filenames.
     write_json_report(data, output_dir, filename="output.json", **summary_opts)
     write_markdown_report(data, output_dir, filename="output.md", **summary_opts)

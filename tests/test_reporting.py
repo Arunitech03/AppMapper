@@ -74,3 +74,22 @@ def test_write_reports(tmp_path):
     assert json_path.exists() and md_path.exists()
     loaded = json.loads(json_path.read_text())
     assert loaded["target"]["domain"] == "example.com"
+
+
+def test_keep_history_versions_reports(tmp_path):
+    from reporting import write_reports
+
+    # First versioned run -> report_1.* alongside the latest report.*
+    p1 = write_reports(SAMPLE, tmp_path, version=True)
+    assert (tmp_path / "report.html").exists()  # stable latest
+    assert (tmp_path / "report_1.html").exists() and (tmp_path / "report_1.json").exists()
+    assert p1["snapshot_html"].name == "report_1.html"
+
+    # Second run increments; the first snapshot is preserved.
+    p2 = write_reports(SAMPLE, tmp_path, version=True)
+    assert p2["snapshot_html"].name == "report_2.html"
+    assert (tmp_path / "report_1.html").exists() and (tmp_path / "report_2.html").exists()
+
+    # Without version=True, no numbered snapshot is written.
+    write_reports(SAMPLE, tmp_path)
+    assert not (tmp_path / "report_3.html").exists()
