@@ -129,7 +129,7 @@ black --check .
 
 | Command | Purpose |
 |---|---|
-| `start` | Start/activate an assessment: scaffold `assessments/<name>/` + `<name>.db` and set it active. |
+| `start` | Start/activate an assessment: scaffold `assessments/<name>/` (incl. `<name>.db`) and set it active. |
 | `status` | Show the active assessment (database, config, reports dir, captures). |
 | `stop` | Deactivate the current assessment **without archiving** (files kept; resume later with `start`). |
 | `scan` | Run discovery + Tier-2 intelligence against a target, then write reports. |
@@ -150,7 +150,7 @@ python main.py summary     --domain testfire.net
 python main.py auth capture --role admin --url https://demo.testfire.net   # needs playwright
 ```
 
-**Active assessment.** After `start <name>`, every command uses `<name>.db` as its
+**Active assessment.** After `start <name>`, every command uses `assessments/<name>/<name>.db` as its
 database **and** writes to `reports/<name>/` by default — no need to repeat `--db` /
 `--report-dir`. Explicit flags always override; with no active assessment the default DB
 is `asdf.db`. See [`docs/examples.md`](docs/examples.md) for the full workflow.
@@ -276,7 +276,7 @@ python main.py scan --session sessions/admin.json --url https://app.example.com 
 
 | Command | Required | Optional |
 |---|---|---|
-| `start` | `<name>` (argument) | — (creates `assessments/<name>/` + `<name>.db`, sets it active) |
+| `start` | `<name>` (argument) | — (creates `assessments/<name>/` incl. `<name>.db`, sets it active) |
 | `status` | — | — (prints the active assessment) |
 | `stop` | — | — (clears the active pointer; no archiving, files kept) |
 | `auth capture` | `--url` | `--role` (def `admin`), `--out`, `--headless`, `--timeout` (def 60000 ms), `--insecure` |

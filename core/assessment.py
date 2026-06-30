@@ -21,7 +21,7 @@ _SCAFFOLD = """\
 # Assessment: <name>
 # Edit the target (and optionally credentials), then run:
 #   python main.py scan --config assessments/<name>/target.yaml --report-dir <name>
-# <name>.db is the active database (used automatically after `start <name>`).
+# assessments/<name>/<name>.db is the active database (used after `start <name>`).
 url: https://example.com
 domain: example.com
 
@@ -102,7 +102,9 @@ def start_assessment(name: str, *, root: str | Path | None = None) -> dict:
     if created_target:
         target.write_text(_SCAFFOLD.replace("<name>", name))
 
-    db = f"{name}.db"
+    # Keep the DB inside the assessment folder so the engagement is self-contained
+    # and the repo root stays clean (asdf.db remains the only root DB).
+    db = f"assessments/{name}/{name}.db"
     # Create the database file + schema up front so it exists immediately.
     from storage.database import Database
 

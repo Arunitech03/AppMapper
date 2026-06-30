@@ -33,9 +33,11 @@ def test_start_assessment_scaffolds_and_activates(tmp_path):
 
     assert (tmp_path / "assessments" / "testfire" / "target.yaml").exists()
     assert (tmp_path / "assessments" / "testfire" / "captures").is_dir()
-    assert (tmp_path / "testfire.db").exists()  # DB created with schema
-    assert active_db(root=tmp_path) == "testfire.db"
-    assert info["db"] == "testfire.db" and info["created_target"] is True
+    # DB lives inside the assessment folder (root stays clean).
+    assert (tmp_path / "assessments" / "testfire" / "testfire.db").exists()
+    assert not (tmp_path / "testfire.db").exists()
+    assert active_db(root=tmp_path) == "assessments/testfire/testfire.db"
+    assert info["db"] == "assessments/testfire/testfire.db" and info["created_target"] is True
 
     # Idempotent: re-running keeps the existing config, stays active.
     (tmp_path / "assessments" / "testfire" / "target.yaml").write_text("url: https://kept\n")
@@ -119,7 +121,7 @@ def test_stop_command_clears_without_archiving(tmp_path, monkeypatch):
     assert "Stopped assessment: rni" in out
     # Active pointer cleared, but the files are left in place (not archived/moved).
     assert active_name(root=tmp_path) is None
-    assert (tmp_path / "rni.db").exists()
+    assert (tmp_path / "assessments" / "rni" / "rni.db").exists()  # DB kept in the folder
     assert (tmp_path / "assessments" / "rni" / "target.yaml").exists()
     assert not (tmp_path / "archives").exists()
     # Idempotent.

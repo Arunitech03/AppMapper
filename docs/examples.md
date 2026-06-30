@@ -21,8 +21,8 @@ python main.py start testfire
 ```
 
 Scaffolds `assessments/testfire/` (with a `target.yaml` and `captures/`), creates
-`testfire.db`, and sets it as the **active** assessment. Every later command then uses
-`testfire.db` as its database **and** writes to `reports/testfire/` automatically — no
+`assessments/testfire/testfire.db`, and sets it as the **active** assessment. Every later
+command then uses `assessments/testfire/testfire.db` as its database **and** writes to `reports/testfire/` automatically — no
 need to repeat `--db` or `--report-dir` — until you `start` a different assessment or
 pass the flags explicitly:
 
@@ -51,7 +51,7 @@ reports/testfire/
 ```
 
 **With an active assessment, `scan` needs no target flags** — it defaults `--config` to
-`assessments/<name>/target.yaml`, the DB to `<name>.db`, and reports to `reports/<name>/`.
+`assessments/<name>/target.yaml`, the DB to `assessments/<name>/<name>.db`, and reports to `reports/<name>/`.
 So once you've edited the config, the whole lifecycle is just:
 
 ```bash
