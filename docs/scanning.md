@@ -5,7 +5,9 @@ arguments. Everything here is **discovery / analysis only** — AppMapper never
 exploits, replays, brute-forces, or bypasses authentication.
 
 > Run `python main.py <command> --help` for the authoritative, always-current flag
-> list. This document explains *how the pieces fit together*.
+> list. This document explains *how the pieces fit together*. For copy-paste worked
+> examples (URL-only, credentials, HAR, multi-role, browser capture/explore), see
+> [`examples.md`](examples.md).
 
 ---
 

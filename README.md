@@ -27,7 +27,7 @@ knowledge base, and writes consolidated **JSON / Markdown / HTML** reports.
 - [Recipes](#recipes)
 - [Scope](#scope)
 
-📖 Full CLI & scan-modes reference: [`docs/scanning.md`](docs/scanning.md) · Archiving & workspace: [`docs/archiving.md`](docs/archiving.md) · Architecture: [`docs/architecture.md`](docs/architecture.md)
+📖 Full CLI & scan-modes reference: [`docs/scanning.md`](docs/scanning.md) · Examples: [`docs/examples.md`](docs/examples.md) · Archiving & workspace: [`docs/archiving.md`](docs/archiving.md) · Architecture: [`docs/architecture.md`](docs/architecture.md)
 
 ---
 
