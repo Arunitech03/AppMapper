@@ -111,6 +111,7 @@ def archive_assessment(
     config_path: str | Path | None = None,
     database_path: str | Path | None = None,
     assessment_name: str | None = None,
+    assessment_dir: str | Path | None = None,
     extra_meta: dict | None = None,
 ) -> Path:
     """Move all assessment artifacts into ``archives/<name>_<ts>/`` and return its path.
@@ -148,6 +149,7 @@ def archive_assessment(
     counts["captures"] += _archive_stray_hars(root, dest)
     database_files = _archive_database(root, dest, database_path)
     config_file = _snapshot_config(root, dest, config_path)
+    archived_assessment = _archive_assessment_dir(root, dest, assessment_dir)
 
     now_iso = datetime.now().isoformat(timespec="seconds")
     report_count = sum(_count_files(dest / "reports", ext) for ext in _REPORT_EXTS)
@@ -158,6 +160,7 @@ def archive_assessment(
         "target_name": name,
         "assessment_name": assessment_name or _assessment_name(root, config_path, target),
         "config_file": config_file,
+        "assessment_dir": archived_assessment,
         "assessment_date": now_iso,
         "archive_timestamp": now_iso,
         "roles": roles or [],
@@ -237,6 +240,31 @@ def _archive_stray_hars(root: Path, dest: Path) -> int:
         except (OSError, shutil.Error) as exc:
             log.warning("archive.har_move_failed", file=str(har), error=str(exc))
     return moved
+
+
+def _archive_assessment_dir(
+    root: Path, dest: Path, assessment_dir: str | Path | None
+) -> str | None:
+    """MOVE the whole ``assessments/<name>/`` definition folder (target.yaml + its
+    captures) into ``assessment/`` for a full close-out. Returns the folder name moved.
+
+    Only folders directly under ``assessments/`` are moved (defensive).
+    """
+    if not assessment_dir:
+        return None
+    src = Path(assessment_dir)
+    src = (src if src.is_absolute() else root / src).resolve()
+    assessments_root = (root / "assessments").resolve()
+    if not src.is_dir() or src.parent != assessments_root:
+        return None
+    target = dest / "assessment" / src.name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.move(str(src), str(target))
+        return src.name
+    except (OSError, shutil.Error) as exc:
+        log.warning("archive.assessment_move_failed", dir=str(src), error=str(exc))
+        return None
 
 
 def _snapshot_config(root: Path, dest: Path, config_path: str | Path | None) -> str | None:

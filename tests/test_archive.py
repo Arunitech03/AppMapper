@@ -121,6 +121,32 @@ def test_archive_sweeps_all_stray_engagement_dbs(tmp_path):
     assert set(meta["database_files"]) == {"testfire.db", "oldclient.db", "legacy.sqlite3"}
 
 
+def test_archive_moves_assessment_dir(tmp_path):
+    _seed_workspace(tmp_path)
+    adir = tmp_path / "assessments" / "rni"
+    (adir / "captures").mkdir(parents=True)
+    (adir / "target.yaml").write_text("url: https://x\n")
+    (adir / "captures" / "user_rni.har").write_text("{}")
+
+    dest = archive_assessment("https://x", repo_root=tmp_path, assessment_dir=adir)
+
+    # The whole definition folder (target.yaml + captures) moved into the archive.
+    assert (dest / "assessment" / "rni" / "target.yaml").exists()
+    assert (dest / "assessment" / "rni" / "captures" / "user_rni.har").exists()
+    assert not adir.exists()  # gone from the workspace
+    meta = json.loads((dest / "assessment_metadata.json").read_text())
+    assert meta["assessment_dir"] == "rni"
+
+
+def test_archive_assessment_dir_guards_non_assessments_path(tmp_path):
+    _seed_workspace(tmp_path)
+    outside = tmp_path / "not_assessments"
+    outside.mkdir()
+    (outside / "x.txt").write_text("keep me")
+    archive_assessment("https://x", repo_root=tmp_path, assessment_dir=outside)
+    assert outside.exists()  # only folders under assessments/ are moved
+
+
 def test_archive_protects_asdf_db(tmp_path):
     _seed_workspace(tmp_path)
     (tmp_path / "asdf.db").write_text("app-state")

@@ -157,6 +157,15 @@ def explore(
 _SCAFFOLD_URL = "https://example.com"  # placeholder url written by `start` into target.yaml
 
 
+def _active_assessment_dir() -> str | None:
+    """The active assessment's assessments/<name>/ folder, if it exists (for archiving)."""
+    from core.assessment import active_name
+
+    name = active_name()
+    folder = Path("assessments") / (name or "")
+    return str(folder) if name and folder.is_dir() else None
+
+
 def _settings(db: str | None, report_dir: str | None, log_level: str, log_json: bool) -> Settings:
     from core.assessment import active_db
 
@@ -428,7 +437,12 @@ def scan(
             from core.archive import archive_assessment
 
             tgt = _infer_target() or active_name() or "assessment"
-            dest = archive_assessment(tgt, config_path=config, database_path=_db_file(settings))
+            dest = archive_assessment(
+                tgt,
+                config_path=config,
+                database_path=_db_file(settings),
+                assessment_dir=_active_assessment_dir(),
+            )
             console.print(f"[green]Archived (no scan target):[/green] {dest}")
             cleared = clear_active()
             if cleared:
@@ -502,6 +516,7 @@ def scan(
             roles=[u.role for u in target.users],
             config_path=config,
             database_path=_db_file(settings),
+            assessment_dir=_active_assessment_dir(),
         )
         console.print(f"[green]Assessment archived:[/green] {dest}")
         console.print("[dim]Repository cleaned · pointer: current_assessment[/dim]")
@@ -526,7 +541,7 @@ def archive(
     from core.assessment import active_name, clear_active
 
     target = url or _infer_target() or active_name() or "assessment"
-    dest = archive_assessment(target, roles=list(role))
+    dest = archive_assessment(target, roles=list(role), assessment_dir=_active_assessment_dir())
     console.print(f"[green]Assessment archived:[/green] {dest}")
     console.print("[dim]Repository cleaned · pointer updated: current_assessment[/dim]")
     cleared = clear_active()
