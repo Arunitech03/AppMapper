@@ -61,6 +61,9 @@ python main.py scan                     # uses the active config / DB / report d
 python main.py scan --archive           # close out: archive everything, then clear the
                                         # active assessment so you can start the next one
 python main.py start nextclient         # fresh engagement
+
+# Just switching assessments (no archiving)? Deactivate without touching files:
+python main.py stop                     # clears the active pointer; resume later with `start`
 ```
 
 `scan --archive` sweeps all artifacts (reports, captures, exploration, sessions, and **every

@@ -131,6 +131,7 @@ black --check .
 |---|---|
 | `start` | Start/activate an assessment: scaffold `assessments/<name>/` + `<name>.db` and set it active. |
 | `status` | Show the active assessment (database, config, reports dir, captures). |
+| `stop` | Deactivate the current assessment **without archiving** (files kept; resume later with `start`). |
 | `scan` | Run discovery + Tier-2 intelligence against a target, then write reports. |
 | `report` | Regenerate reports from previously stored results. |
 | `list-assets` | Print discovered subdomains, directories and API endpoints. |
@@ -277,6 +278,7 @@ python main.py scan --session sessions/admin.json --url https://app.example.com 
 |---|---|---|
 | `start` | `<name>` (argument) | — (creates `assessments/<name>/` + `<name>.db`, sets it active) |
 | `status` | — | — (prints the active assessment) |
+| `stop` | — | — (clears the active pointer; no archiving, files kept) |
 | `auth capture` | `--url` | `--role` (def `admin`), `--out`, `--headless`, `--timeout` (def 60000 ms), `--insecure` |
 | `auth explore` | `--url` | `--role`, `--out`, `--har`, `--headless`, `--safe-mode`, `--debug-browser`, `--timeout`, `--insecure` |
 | `report` | `--domain` | `--db`, `--report-dir` |

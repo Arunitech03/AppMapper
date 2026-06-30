@@ -275,6 +275,28 @@ def status() -> None:
 
 
 @app.command()
+def stop() -> None:
+    """Deactivate the current assessment **without archiving**.
+
+    Clears the active pointer only — the assessment's DB, reports, and
+    `assessments/<name>/` folder are left untouched, so you can move to the next
+    assessment (`start <name>`) and resume this one later. Use `scan --archive` (or
+    `archive`) instead when you want to archive + reset.
+    """
+    from core.assessment import clear_active
+
+    cleared = clear_active()
+    if cleared:
+        console.print(
+            f"[green]Stopped assessment:[/green] {cleared}  "
+            "[dim](files kept, not archived)[/dim]"
+        )
+        console.print("Run [cyan]python main.py start <name>[/cyan] to begin or resume another.")
+    else:
+        console.print("[yellow]No active assessment to stop.[/yellow]")
+
+
+@app.command()
 def scan(
     url: str | None = typer.Option(
         None, "--url", help="Target URL, e.g. https://example.com (or set in --config)"

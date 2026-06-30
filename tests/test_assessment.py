@@ -106,6 +106,26 @@ def test_scan_no_target_no_archive_errors(tmp_path, monkeypatch):
     assert result.exit_code == 2 and "target URL is required" in result.stdout
 
 
+def test_stop_command_clears_without_archiving(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from main import app
+
+    monkeypatch.chdir(tmp_path)
+    start_assessment("rni", root=tmp_path)
+    runner = CliRunner()
+
+    out = runner.invoke(app, ["stop"]).stdout
+    assert "Stopped assessment: rni" in out
+    # Active pointer cleared, but the files are left in place (not archived/moved).
+    assert active_name(root=tmp_path) is None
+    assert (tmp_path / "rni.db").exists()
+    assert (tmp_path / "assessments" / "rni" / "target.yaml").exists()
+    assert not (tmp_path / "archives").exists()
+    # Idempotent.
+    assert "No active assessment to stop" in runner.invoke(app, ["stop"]).stdout
+
+
 def test_status_command(tmp_path, monkeypatch):
     from typer.testing import CliRunner
 
