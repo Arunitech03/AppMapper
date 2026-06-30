@@ -337,12 +337,6 @@ def scan(
         help="After reporting, move all assessment artifacts into a self-contained "
         "archives/<target>_<timestamp>/ folder and leave the repository clean",
     ),
-    keep_history: bool = typer.Option(
-        False,
-        "--keep-history",
-        help="Keep a numbered snapshot (report_<N>.{html,md,json}) each run alongside the "
-        "latest report.*, so successive scans in the same folder don't overwrite history",
-    ),
     dns: bool = typer.Option(
         False,
         "--dns",
@@ -443,12 +437,14 @@ def scan(
     target_id = database.get_target_id(target.domain) or database.upsert_target(target)
     data = database.fetch_all(target_id, show_pii=show_pii)
     summary_opts = {"provider": ai_provider, "base_url": ai_base_url, "model": ai_model}
+    # History is kept by default: each scan also writes a numbered report_<N>.* snapshot
+    # alongside the latest report.*, so previous scans in the same folder are preserved.
     paths = write_reports(
-        data, settings.report_dir, show_pii=show_pii, version=keep_history, **summary_opts
+        data, settings.report_dir, show_pii=show_pii, version=True, **summary_opts
     )
 
     _print_scan_summary(results, paths)
-    if keep_history and "snapshot_html" in paths:
+    if "snapshot_html" in paths:
         console.print(f"[green]History snapshot:[/green] {paths['snapshot_html']}")
 
     if archive:

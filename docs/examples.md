@@ -38,6 +38,17 @@ This keeps each engagement in its own database (instead of piling into the share
 engagement. The active pointer lives in `.active_assessment.json` (git-ignored); switch
 engagements by running `start <other>`.
 
+**Scan history is automatic.** Every scan writes the latest `report.{html,md,json}` *and*
+keeps a numbered snapshot `report_<N>.{html,md,json}`, so successive scans in the same
+assessment never overwrite previous results:
+
+```
+reports/testfire/
+├── report.html        report.md        report.json      ← always the latest
+├── report_1.html      report_1.md      report_1.json    ← scan #1
+└── report_2.html      report_2.md      report_2.json    ← scan #2
+```
+
 ## 1. URL alone (anonymous discovery)
 
 ```bash
@@ -149,7 +160,6 @@ Append any of these to a `scan`:
 | `--browser-tech` | Boot the app in a real browser and fingerprint the runtime stack (needs Playwright) |
 | `--no-crawl` | Analyze captures/discovery only — no authenticated crawl traffic |
 | `--offline` | **Zero** traffic to the target — analyze captures only |
-| `--keep-history` | Keep a numbered snapshot (`report_<N>.{html,md,json}`) each run alongside the latest `report.*` — track successive scans in the same assessment without overwriting |
 | `--archive` | Sweep all artifacts into a timestamped `archives/<target>_<ts>/` folder when done |
 
 **Prerequisite for the browser workflows (5 & 6):** Playwright must be installed —
