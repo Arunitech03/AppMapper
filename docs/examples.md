@@ -21,19 +21,22 @@ python main.py start testfire
 ```
 
 Scaffolds `assessments/testfire/` (with a `target.yaml` and `captures/`), creates
-`testfire.db`, and sets it as the **active** database. Every later command then uses
-`testfire.db` automatically — no need to repeat `--db` — until you `start` a different
-assessment or pass an explicit `--db`:
+`testfire.db`, and sets it as the **active** assessment. Every later command then uses
+`testfire.db` as its database **and** writes to `reports/testfire/` automatically — no
+need to repeat `--db` or `--report-dir` — until you `start` a different assessment or
+pass the flags explicitly:
 
 ```bash
 python main.py scan --url https://demo.testfire.net --domain testfire.net --insecure
-python main.py report --domain testfire.net          # same DB, no --db needed
-python main.py scan ... --db other.db                # explicit --db always overrides
+python main.py report --domain testfire.net          # same DB + reports/testfire/, no flags
+python main.py status                                # show the active assessment
+python main.py scan ... --db other.db --report-dir x # explicit flags always override
 ```
 
 This keeps each engagement in its own database (instead of piling into the shared
 `asdf.db` scratch DB), and pairs naturally with `--archive` to snapshot the whole
-engagement. The active pointer lives in `.active_assessment.json` (git-ignored).
+engagement. The active pointer lives in `.active_assessment.json` (git-ignored); switch
+engagements by running `start <other>`.
 
 ## 1. URL alone (anonymous discovery)
 

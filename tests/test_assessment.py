@@ -55,3 +55,30 @@ def test_settings_falls_back_to_active_db(tmp_path, monkeypatch):
     assert _settings(None, None, "INFO", False).database_url == "sqlite:///testfire.db"
     # Explicit --db always wins.
     assert _settings("other.db", None, "INFO", False).database_url == "sqlite:///other.db"
+
+
+def test_report_dir_defaults_to_active_assessment(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from main import _resolved_report
+
+    set_active("testfire", "testfire.db", root=tmp_path)
+    # No --report-dir -> reports land under the active assessment name.
+    assert _resolved_report(None).replace("\\", "/").endswith("reports/testfire")
+    # Explicit --report-dir still wins.
+    assert _resolved_report("custom").replace("\\", "/").endswith("reports/custom")
+
+
+def test_status_command(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from main import app
+
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+
+    out = runner.invoke(app, ["status"]).stdout
+    assert "No active assessment" in out
+
+    start_assessment("testfire", root=tmp_path)
+    out = runner.invoke(app, ["status"]).stdout
+    assert "Active assessment: testfire" in out and "testfire.db" in out

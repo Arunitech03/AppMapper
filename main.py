@@ -188,8 +188,14 @@ def _report_dir_name(report_dir: str | None, output_dir: str | None) -> str | No
 
 
 def _resolved_report(report_dir: str | None, output_dir: str | None = None) -> str:
-    """Map the logical --report-dir name to reports/<name>, or exit on a bad value."""
-    name = _report_dir_name(report_dir, output_dir)
+    """Map the logical --report-dir name to reports/<name>, or exit on a bad value.
+
+    Falls back to the active assessment's name (so reports land in reports/<name>/
+    without --report-dir) when neither flag is given.
+    """
+    from core.assessment import active_name
+
+    name = _report_dir_name(report_dir, output_dir) or active_name()
     try:
         return str(resolve_report_dir(name))
     except ValueError as exc:
@@ -224,10 +230,36 @@ def start(
         + ("" if info["created_target"] else "  [dim](kept existing)[/dim]")
     )
     console.print(f"  Captures : {info['folder']}/captures/")
+    console.print(f"  Reports  : reports/{info['name']}/  [dim](default for this assessment)[/dim]")
     console.print(
         f"\nNext: edit [cyan]{info['target']}[/cyan], then run:  "
-        f"[cyan]python main.py scan --config {info['target']} --report-dir {info['name']}[/cyan]"
+        f"[cyan]python main.py scan --config {info['target']}[/cyan]"
     )
+
+
+@app.command()
+def status() -> None:
+    """Show the active assessment (set by `start`) and where its files live."""
+    from core.assessment import active_db, active_name
+
+    name = active_name()
+    if not name:
+        console.print("[yellow]No active assessment.[/yellow]  Run:  python main.py start <name>")
+        return
+
+    db = active_db() or "—"
+    cfg = Path("assessments") / name / "target.yaml"
+
+    def _mark(exists: bool) -> str:
+        return "[dim](exists)[/dim]" if exists else "[yellow](not found)[/yellow]"
+
+    console.print(f"[green]Active assessment:[/green] {name}")
+    console.print(
+        f"  Database : {db}  {_mark(Path(db).exists())}  [dim](default; override --db)[/dim]"
+    )
+    console.print(f"  Config   : {cfg}  {_mark(cfg.exists())}")
+    console.print(f"  Reports  : reports/{name}/  [dim](default; override --report-dir)[/dim]")
+    console.print(f"  Captures : assessments/{name}/captures/")
 
 
 @app.command()
