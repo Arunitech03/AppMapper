@@ -93,3 +93,18 @@ def test_keep_history_versions_reports(tmp_path):
     # Without version=True, no numbered snapshot is written.
     write_reports(SAMPLE, tmp_path)
     assert not (tmp_path / "report_3.html").exists()
+
+
+def test_keep_history_retention_limit(tmp_path):
+    from reporting import write_reports
+
+    for _ in range(5):
+        write_reports(SAMPLE, tmp_path, version=True, history_limit=3)
+
+    nums = sorted(int(p.stem.split("_")[1]) for p in tmp_path.glob("report_*.html"))
+    # Five runs, keep last 3 -> only the 3 highest-numbered snapshots remain.
+    assert nums == [3, 4, 5]
+    for n in (1, 2):
+        for ext in ("html", "md", "json"):
+            assert not (tmp_path / f"report_{n}.{ext}").exists()
+    assert (tmp_path / "report.html").exists()  # latest always kept

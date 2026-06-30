@@ -38,9 +38,10 @@ This keeps each engagement in its own database (instead of piling into the share
 engagement. The active pointer lives in `.active_assessment.json` (git-ignored); switch
 engagements by running `start <other>`.
 
-**Scan history is automatic.** Every scan writes the latest `report.{html,md,json}` *and*
-keeps a numbered snapshot `report_<N>.{html,md,json}`, so successive scans in the same
-assessment never overwrite previous results:
+**Scan history is automatic** (last 10 retained). Every scan writes the latest
+`report.{html,md,json}` *and* keeps a numbered snapshot `report_<N>.{html,md,json}`, so
+successive scans in the same assessment never overwrite previous results. Only the 10
+most-recent snapshots are kept (older ones are pruned automatically):
 
 ```
 reports/testfire/

@@ -25,16 +25,32 @@ __all__ = [
 ]
 
 
-def _next_version(out: Path) -> int:
-    """Next ``report_<N>`` index for this folder (max existing + 1)."""
+HISTORY_LIMIT = 10  # keep this many most-recent numbered snapshots per report folder
+
+
+def _snapshot_numbers(out: Path) -> list[int]:
     import re
 
-    highest = 0
+    nums = []
     for p in out.glob("report_*.html"):
         m = re.fullmatch(r"report_(\d+)\.html", p.name)
         if m:
-            highest = max(highest, int(m.group(1)))
-    return highest + 1
+            nums.append(int(m.group(1)))
+    return sorted(nums)
+
+
+def _next_version(out: Path) -> int:
+    """Next ``report_<N>`` index for this folder (max existing + 1)."""
+    nums = _snapshot_numbers(out)
+    return (nums[-1] if nums else 0) + 1
+
+
+def _prune_history(out: Path, keep: int) -> None:
+    """Delete the oldest numbered snapshots, retaining the ``keep`` highest-numbered."""
+    nums = _snapshot_numbers(out)
+    for n in nums[:-keep] if keep > 0 and len(nums) > keep else []:
+        for ext in ("json", "md", "html"):
+            (out / f"report_{n}.{ext}").unlink(missing_ok=True)
 
 
 def write_reports(
@@ -42,6 +58,7 @@ def write_reports(
     output_dir: str | Path,
     *,
     version: bool = False,
+    history_limit: int = HISTORY_LIMIT,
     **summary_opts: Any,
 ) -> dict[str, Path]:
     """Write the consolidated Tier-2 report set + graph exports.
@@ -52,7 +69,8 @@ def write_reports(
 
     When ``version`` is set, each run also keeps a numbered snapshot
     (``report_<N>.{json,md,html}``) alongside the always-latest ``report.*`` — so
-    successive scans in the same folder don't overwrite previous results.
+    successive scans in the same folder don't overwrite previous results. Only the
+    ``history_limit`` most-recent snapshots are retained (oldest pruned).
     """
     out = Path(output_dir)
     paths: dict[str, Path] = {}
@@ -67,6 +85,7 @@ def write_reports(
             dst = out / f"report_{n}.{ext}"
             shutil.copy2(out / f"report.{ext}", dst)
             paths[f"snapshot_{ext}"] = dst
+        _prune_history(out, history_limit)  # retain only the most-recent snapshots
     # Back-compat Tier-1 filenames.
     write_json_report(data, output_dir, filename="output.json", **summary_opts)
     write_markdown_report(data, output_dir, filename="output.md", **summary_opts)
