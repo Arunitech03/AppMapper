@@ -329,14 +329,20 @@ def _render_executive_intelligence(report: dict, h, lines: list[str]) -> None:
 
 
 def _render_crawl_coverage(report: dict, h, lines: list[str]) -> None:
-    """Per-role authenticated-crawl coverage, flagging form-login roles that
-    captured no post-login pages (login likely failed)."""
-    from collections import Counter
+    """Per-role authenticated-crawl coverage: flags form-login roles that captured
+    no post-login pages, and lists the post-login pages each role unlocked."""
+    from collections import Counter, defaultdict
 
     users = [
         u for u in (report.get("users") or []) if u.get("role") and u.get("role") != "anonymous"
     ]
-    counts = Counter(e.get("role") for e in (report.get("crawl_endpoints") or []))
+    crawl = report.get("crawl_endpoints") or []
+    counts = Counter(e.get("role") for e in crawl)
+    pages_by_role: dict[str, set] = defaultdict(set)
+    for e in crawl:
+        if e.get("url"):
+            pages_by_role[e.get("role")].add(e["url"])
+    anon_pages = pages_by_role.get("anonymous", set())
     total_pages = sum(counts.values())
     # Skip when there's nothing meaningful to report (e.g. a pure HAR/offline scan
     # with no form-login role and no crawled pages).
@@ -371,6 +377,24 @@ def _render_crawl_coverage(report: dict, h, lines: list[str]) -> None:
             "`login.url` / `login.username_field` / `login.password_field` in the config; "
             "or (4) the crawl was disabled (`--no-crawl` / `--offline`)."
         )
+        lines.append("")
+
+    # List the post-login pages each form-login role unlocked (those an anonymous
+    # crawl did NOT reach), so authenticated surface is visible at a glance.
+    for u in users:
+        if not u.get("has_password"):
+            continue
+        role = u["role"]
+        exclusive = sorted(pages_by_role.get(role, set()) - anon_pages)
+        shown = exclusive or sorted(pages_by_role.get(role, set()))
+        if not shown:
+            continue
+        label = "exclusive to this role" if exclusive else "captured for this role"
+        h(3, f"Post-Login Pages — {role} ({len(shown)}, {label})")
+        for url in shown[:40]:
+            lines.append(f"- {url}")
+        if len(shown) > 40:
+            lines.append(f"- … and {len(shown) - 40} more")
         lines.append("")
 
 

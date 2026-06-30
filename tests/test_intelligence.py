@@ -117,6 +117,24 @@ def test_crawl_coverage_ok_when_pages_captured():
     assert "No authenticated pages" not in out
 
 
+def test_crawl_coverage_lists_post_login_pages():
+    out = _coverage(
+        {
+            "users": [{"role": "user2", "has_password": True}],
+            "crawl_endpoints": [
+                {"role": "anonymous", "url": "https://x/index.jsp"},
+                {"role": "user2", "url": "https://x/index.jsp"},
+                {"role": "user2", "url": "https://x/bank/main.jsp"},
+                {"role": "user2", "url": "https://x/bank/transfer.jsp"},
+            ],
+        }
+    )
+    # Lists the pages exclusive to the authenticated role, not the shared public page.
+    assert "Post-Login Pages — user2 (2, exclusive to this role)" in out
+    assert "https://x/bank/main.jsp" in out and "https://x/bank/transfer.jsp" in out
+    assert "https://x/index.jsp" not in out.split("Post-Login Pages")[1]
+
+
 def test_crawl_coverage_skipped_for_har_only_scan():
     # No form-login role and no crawl pages (pure HAR/offline) -> no section, no false alarm.
     out = _coverage(
