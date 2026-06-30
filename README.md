@@ -129,6 +129,8 @@ black --check .
 
 | Command | Purpose |
 |---|---|
+| `start` | Start/activate an assessment: scaffold `assessments/<name>/` + `<name>.db` and set it active. |
+| `status` | Show the active assessment (database, config, reports dir, captures). |
 | `scan` | Run discovery + Tier-2 intelligence against a target, then write reports. |
 | `report` | Regenerate reports from previously stored results. |
 | `list-assets` | Print discovered subdomains, directories and API endpoints. |
@@ -137,16 +139,22 @@ black --check .
 | `auth capture` | Open a browser to log in manually (IdP/MFA/SSO), then save the session. |
 
 ```bash
-python main.py scan        --url https://example.com --domain example.com
-python main.py report      --domain example.com
-python main.py list-assets --domain example.com
-python main.py query       --q "Show all upload endpoints" --domain example.com
-python main.py summary     --domain example.com
-python main.py auth capture --role admin --url https://example.com     # needs playwright
+python main.py start       testfire                                   # active DB + reports dir
+python main.py scan        --url https://demo.testfire.net --domain testfire.net
+python main.py status      # which assessment/DB is active?
+python main.py report      --domain testfire.net
+python main.py list-assets --domain testfire.net
+python main.py query       --q "Show all upload endpoints" --domain testfire.net
+python main.py summary     --domain testfire.net
+python main.py auth capture --role admin --url https://demo.testfire.net   # needs playwright
 ```
 
-Every command accepts `--db <file>` to choose the SQLite store (default `asdf.db`)
-and `--help` for full options.
+**Active assessment.** After `start <name>`, every command uses `<name>.db` as its
+database **and** writes to `reports/<name>/` by default — no need to repeat `--db` /
+`--report-dir`. Explicit flags always override; with no active assessment the default DB
+is `asdf.db`. See [`docs/examples.md`](docs/examples.md) for the full workflow.
+
+Every command accepts `--db <file>` to choose the SQLite store and `--help` for full options.
 
 ---
 
@@ -209,8 +217,14 @@ For multi-role comparison use `--config` with a `users:` list instead.
 |---|---|---|---|
 | `--wordlist` | PATH | built-in | Directory-enumeration wordlist; also widens the per-role reachability probe. |
 | `--skip` | TEXT | — | Skip a discovery module. **Repeatable**. Names: `subdomains, directories, techstack, ssl, js_analysis, nmap, api_discovery`. |
+| `--subdomain-sources` | TEXT | all available | Passive subdomain providers (comma-separated): `crtsh,alienvault,bufferover,rapiddns,securitytrails,virustotal`. crt.sh/OTX/RapidDNS need no key; SecurityTrails/VirusTotal run only when their key is set (see env vars below). One provider failing never fails the scan. |
+| `--dns` | flag | off | Passively resolve DNS records (A/CNAME/TXT/MX/…) for **discovered** hosts only (no brute-force; skipped under `--offline`). |
 | `--browser-tech` | flag | off | Boot the app in a real browser and fingerprint the **runtime** stack (React/Tailwind/etc. on SPAs). Needs Playwright. |
 | `--browser-wait` | INT | `4000` | Settle time (ms) before the runtime fingerprint snapshot (give SPAs time to boot). |
+
+> **API keys (optional)** for the key-gated subdomain providers, via environment:
+> `ASDF_SECURITYTRAILS_API_KEY`, `ASDF_VIRUSTOTAL_API_KEY`. Without them those providers
+> are simply skipped; the keyless sources still run.
 
 ### AI application summary
 
@@ -226,10 +240,15 @@ For multi-role comparison use `--config` with a `users:` list instead.
 
 | Flag | Arg | Default | Description |
 |---|---|---|---|
-| `--output-dir` | PATH | `reports` | Directory for `report.{md,html,json}` + graph files. |
-| `--db` | TEXT | `sqlite:///asdf.db` | SQLite path or full SQLAlchemy URL. New columns auto-migrate on open. |
+| `--report-dir` | TEXT | active assessment, else `default` | Logical report-folder **name** → `reports/<name>/`. Defaults to the active assessment's name (from `start`). |
+| `--db` | TEXT | active assessment, else `asdf.db` | SQLite path or full SQLAlchemy URL. Defaults to the active assessment's DB. New columns auto-migrate on open. |
+| `--archive` | flag | off | After reporting, sweep all artifacts into a timestamped `archives/<target>_<ts>/` folder and leave the repo clean. |
 | `--log-level` | TEXT | `INFO` | `DEBUG \| INFO \| WARNING \| ERROR`. |
 | `--log-json` | flag | off | Emit structured JSON logs instead of console formatting. |
+
+> **Scan history is automatic.** Each scan writes the latest `report.{html,md,json}` **and**
+> a numbered snapshot `report_<N>.{html,md,json}` in the same folder (last **10** retained),
+> so successive scans never overwrite previous results. `report.*` is always the latest.
 
 ### Common invocations
 
@@ -256,9 +275,11 @@ python main.py scan --session sessions/admin.json --url https://app.example.com 
 
 | Command | Required | Optional |
 |---|---|---|
+| `start` | `<name>` (argument) | — (creates `assessments/<name>/` + `<name>.db`, sets it active) |
+| `status` | — | — (prints the active assessment) |
 | `auth capture` | `--url` | `--role` (def `admin`), `--out`, `--headless`, `--timeout` (def 60000 ms), `--insecure` |
 | `auth explore` | `--url` | `--role`, `--out`, `--har`, `--headless`, `--safe-mode`, `--debug-browser`, `--timeout`, `--insecure` |
-| `report` | `--domain` | `--db`, `--output-dir` |
+| `report` | `--domain` | `--db`, `--report-dir` |
 | `list-assets` | `--domain` | `--db` |
 | `query` | `--q` | `--domain`, `--db` |
 | `summary` | `--domain` | `--db`, `--ai-provider`, `--ai-base-url`, `--ai-model` |
@@ -372,7 +393,7 @@ per-role endpoint counts plus admin-only / user-only / shared endpoint sets.
 ### Tier 1 — Discovery
 | # | Module | Path |
 |---|--------|------|
-| 1 | Subdomain discovery (crt.sh CT + DNS validation) | `modules/recon/subdomains.py` |
+| 1 | Subdomain discovery — **multi-source passive** (crt.sh, AlienVault OTX, BufferOver, RapidDNS, + keyed SecurityTrails/VirusTotal) with fallback + DNS validation | `modules/recon/subdomains.py` |
 | 2 | Directory enumeration (configurable wordlist) | `modules/recon/directories.py` |
 | 3 | Tech-stack fingerprinting (+ client-side libraries) | `modules/fingerprint/techstack.py` |
 | 4 | SSL/TLS analysis | `modules/ssl/ssl_scanner.py` |
@@ -385,11 +406,11 @@ per-role endpoint counts plus admin-only / user-only / shared endpoint sets.
 ### Tier 2 — Application Intelligence
 | # | Capability | Path |
 |---|------------|------|
-| 1 | Authenticated crawling (per role + anonymous) | `modules/auth/crawler.py` |
+| 1 | Authenticated crawling (per role + anonymous; auto-probes common login paths; **Authenticated Crawl Coverage** lists each role's post-login pages) | `modules/auth/crawler.py` |
 | 2 | Workflow mapping (page graph + ASCII tree) | `modules/intelligence/workflow_mapper.py` |
 | 3 | Sensitive function discovery (auth/users/files/data/admin) | `modules/intelligence/function_detector.py` |
 | 4 | Role-based access analysis (counts + role-only/shared) | `modules/intelligence/access_diff.py` |
-| 5 | API intelligence (methods/params/types + authz-sensitive flag) | `modules/api/analyzer.py` |
+| 5 | API intelligence (methods/params/types + authz-sensitive flag; **full host/URL** per endpoint) | `modules/api/analyzer.py` |
 | 6 | Attack-surface graph (JSON / GraphML / Draw.io) | `modules/intelligence/graph_builder.py` |
 | 7 | Pentest checklist generator | `modules/intelligence/checklist_generator.py` |
 | 8 | Local knowledge base (SQLite FTS5) | `modules/knowledge/` |
@@ -399,6 +420,8 @@ per-role endpoint counts plus admin-only / user-only / shared endpoint sets.
 | Capability | Path |
 |---|---|
 | Unified asset inventory — normalized IDs, static/GIS noise split out | `modules/intelligence/asset_inventory.py`, `path_normalizer.py` |
+| **Passive Subdomain Intelligence** — merges multi-source subdomains with runtime hosts; source attribution + confidence + cloud provider | `modules/intelligence/subdomain_intelligence.py` |
+| **DNS Intelligence** — host inventory, cloud/auth/gateway detection, dangling-CNAME & email-posture findings (opt-in `--dns` for live records) | `modules/intelligence/dns_intelligence.py` |
 | Response intelligence (status/type/size + JSON **keys only**) | `modules/intelligence/response_analyzer.py` |
 | Role visibility / redesigned Access Matrix (4 states) | `modules/intelligence/role_visibility.py` |
 | API gateway detection + classification | `modules/intelligence/gateway_detector.py` |

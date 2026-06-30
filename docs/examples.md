@@ -163,6 +163,11 @@ Append any of these to a `scan`:
 | `--offline` | **Zero** traffic to the target — analyze captures only |
 | `--archive` | Sweep all artifacts into a timestamped `archives/<target>_<ts>/` folder when done |
 
+**Passive subdomain API keys (optional):** SecurityTrails and VirusTotal run only when a
+key is configured via environment — `ASDF_SECURITYTRAILS_API_KEY`, `ASDF_VIRUSTOTAL_API_KEY`.
+The keyless sources (crt.sh, AlienVault OTX, RapidDNS) always run; if one provider is down
+the others still contribute (the scan never fails on a single provider).
+
 **Prerequisite for the browser workflows (5 & 6):** Playwright must be installed —
 `pip install playwright && playwright install chromium`.
 
