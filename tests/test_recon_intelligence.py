@@ -69,6 +69,31 @@ def test_secret_discovery_no_full_value_anywhere():
         assert secret not in (f.value_masked or "")
 
 
+def test_pem_template_literal_not_flagged_as_private_key():
+    # SDK code that *formats* an exported key — a delimiter literal, no key body.
+    js = r'o="-----BEGIN PRIVATE KEY-----\n"+r+"\n-----END PRIVATE KEY-----";'
+    findings = discover_secrets(_corpus(js))
+    assert not any(f.kind == "private_key" for f in findings)
+
+
+def test_real_private_key_is_flagged():
+    body = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQ0123456789abcdef" * 3
+    pem = f"-----BEGIN PRIVATE KEY-----\n{body}\n-----END PRIVATE KEY-----"
+    pk = [f for f in discover_secrets(_corpus(pem)) if f.kind == "private_key"]
+    assert pk and pk[0].name == "Private Key Block"
+    assert body not in (pk[0].value_masked or "")  # masked, never the full key
+
+
+def test_secret_location_keeps_cross_host():
+    body = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQ0123456789abcdef" * 3
+    pem = f"-----BEGIN PRIVATE KEY-----\n{body}\n-----END PRIVATE KEY-----"
+    corpus = _corpus(pem, url="https://sso.xylem.com/assets/scripts/signals-sdk-5.5.0.js")
+    findings = discover_secrets(corpus, base_domain="walla.datalake-qa.xylem-vue.com")
+    pk = next(f for f in findings if f.kind == "private_key")
+    # cross-host asset keeps its host so it isn't mis-attributed to the scanned app
+    assert pk.location == "sso.xylem.com/assets/scripts/signals-sdk-5.5.0.js"
+
+
 # --- F3 / F4: routes + hidden API refs ------------------------------------
 
 

@@ -107,13 +107,9 @@ _PATTERNS: list[tuple] = [
         re.compile(r"\bxox[baprs]-[0-9A-Za-z\-]{10,}\b"),
     ),
     ("api_key", "GitHub Token", "API Keys", "High", re.compile(r"\bgh[pousr]_[0-9A-Za-z]{36}\b")),
-    (
-        "private_key",
-        "Private Key Block",
-        "API Keys",
-        "High",
-        re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----"),
-    ),
+    # NOTE: private keys are handled separately (see _PRIVATE_KEY_RE) so a real
+    # base64 key body is required — PEM *template literals* in SDK code such as
+    # `"-----BEGIN PRIVATE KEY-----\n"+v+"\n-----END PRIVATE KEY-----"` are not flagged.
     # ---- authentication artifacts ----
     (
         "jwt",
@@ -163,6 +159,23 @@ _PATTERNS: list[tuple] = [
 # Capture-group patterns return the secret in group(1); the rest in group(0).
 _GROUPED_KINDS = {"oauth_client_secret", "pkce", "refresh_token"}
 
+# Real PEM private keys: a BEGIN/END block whose body carries actual base64 key
+# material. The body regex deliberately requires a long contiguous base64 run so
+# that JS PEM *template literals* (delimiter immediately followed by string
+# concatenation, no key bytes) do NOT match — the common false positive.
+_PRIVATE_KEY_RE = re.compile(
+    r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----"
+    r"(?P<body>[\s\S]{0,8000}?)"
+    r"-----END (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----"
+)
+_B64_RUN_RE = re.compile(r"[A-Za-z0-9+/]{40,}")
+
+
+def _real_pem_key(body: str) -> bool:
+    """A genuine PEM key has a long contiguous base64 run between the markers."""
+    return bool(_B64_RUN_RE.search(body))
+
+
 # Sensitive keys whose *values* (in JSON/JS) signal PII when present as identifiers.
 _PII_KEY_RE = re.compile(
     r"(?i)\"(customerId|accountNumber|meterNumber|meterId|deviceId|userName|username|ssn|nationalId)\"\s*:"
@@ -209,7 +222,7 @@ def discover_secrets(corpus: list[dict], *, base_domain: str = "") -> list[Intel
         text = item.get("text") or ""
         if not text:
             continue
-        location = _short_location(item.get("url", ""))
+        location = _short_location(item.get("url", ""), base_domain)
         source = item.get("source", "")
 
         for kind, name, category, severity, rx in _PATTERNS:
@@ -218,6 +231,19 @@ def discover_secrets(corpus: list[dict], *, base_domain: str = "") -> list[Intel
                 if not raw:
                     continue
                 add(kind, name, category, severity, raw, location, source)
+
+        # Private keys: only when a real base64 body is present (skips PEM templates).
+        for m in _PRIVATE_KEY_RE.finditer(text):
+            if _real_pem_key(m.group("body")):
+                add(
+                    "private_key",
+                    "Private Key Block",
+                    "API Keys",
+                    "High",
+                    m.group(0),
+                    location,
+                    source,
+                )
 
         # Infrastructure: internal hostnames + private IPs referenced *as URL hosts*
         # (scanning bare text catches minified-JS artifacts like `fn.local`).
@@ -263,11 +289,19 @@ def discover_secrets(corpus: list[dict], *, base_domain: str = "") -> list[Intel
     return sorted(findings.values(), key=lambda f: (f.category, f.name, f.location or ""))
 
 
-def _short_location(url: str) -> str:
+def _short_location(url: str, base_domain: str = "") -> str:
+    """Path within the target host; full ``host/path`` for cross-host assets.
+
+    HAR/Burp responses are often loaded cross-origin (e.g. an SSO host); keeping the
+    host for those prevents mis-attributing a finding to the scanned application.
+    """
     if not url:
         return ""
     p = urlparse(url)
-    return (p.path or url)[:300] or url
+    path = p.path or url
+    host = p.netloc
+    loc = f"{host}{path}" if host and base_domain and host.lower() != base_domain.lower() else path
+    return loc[:300] or url
 
 
 def group_findings(findings: list[IntelFinding]) -> dict[str, list[IntelFinding]]:
