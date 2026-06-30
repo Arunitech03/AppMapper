@@ -155,7 +155,11 @@ def explore(
 
 
 def _settings(db: str | None, report_dir: str | None, log_level: str, log_json: bool) -> Settings:
+    from core.assessment import active_db
+
     overrides: dict[str, object] = {"log_level": log_level, "log_json": log_json}
+    # Fall back to the active assessment's DB (set by `start`) unless --db is given.
+    db = db or active_db()
     if db:
         overrides["database_url"] = db if "://" in db else f"sqlite:///{db}"
     if report_dir:
@@ -191,6 +195,39 @@ def _resolved_report(report_dir: str | None, output_dir: str | None = None) -> s
     except ValueError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=2) from exc
+
+
+@app.command()
+def start(
+    name: str = typer.Argument(
+        ..., help="Assessment name (creates <name>.db + assessments/<name>/)"
+    ),
+) -> None:
+    """Start/activate an assessment.
+
+    Scaffolds ``assessments/<name>/`` (with a ``target.yaml`` and ``captures/``), creates
+    ``<name>.db``, and sets it as the **active** database — every later command uses it by
+    default (override per-command with ``--db``). Re-run to switch the active assessment.
+    """
+    from core.assessment import start_assessment
+
+    try:
+        info = start_assessment(name)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=2) from exc
+
+    console.print(f"[green]Assessment '{info['name']}' is now active.[/green]")
+    console.print(f"  Database : {info['db']}  [dim](used by default; override with --db)[/dim]")
+    console.print(
+        f"  Config   : {info['target']}"
+        + ("" if info["created_target"] else "  [dim](kept existing)[/dim]")
+    )
+    console.print(f"  Captures : {info['folder']}/captures/")
+    console.print(
+        f"\nNext: edit [cyan]{info['target']}[/cyan], then run:  "
+        f"[cyan]python main.py scan --config {info['target']} --report-dir {info['name']}[/cyan]"
+    )
 
 
 @app.command()
@@ -299,6 +336,13 @@ def scan(
     settings = _settings(db, _resolved_report(report_dir, output_dir), log_level, log_json)
     configure_logging(settings.log_level, settings.log_json)
     log = get_logger("cli")
+    if db is None:
+        from core.assessment import active_name
+
+        if active_name():
+            console.print(
+                f"[dim]Active assessment: {active_name()} ({settings.database_url})[/dim]"
+            )
 
     # Offline mode: guarantee zero outbound traffic to the target. Force-skip every
     # network discovery module, disable the crawl + browser fingerprint, and gate the

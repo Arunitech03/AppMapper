@@ -39,7 +39,14 @@ ARCHIVE_DIRS = (
     "runtime_config",
 )
 # Never touched by archiving (would recurse / are workspace infrastructure).
-_PROTECTED = {"archives", "current_assessment", "current_assessment.txt", ".venv", ".git"}
+_PROTECTED = {
+    "archives",
+    "current_assessment",
+    "current_assessment.txt",
+    ".active_assessment.json",
+    ".venv",
+    ".git",
+}
 
 # The application's own database (state/metadata) is never archived or moved.
 _PROTECTED_DB = "asdf.db"

@@ -14,6 +14,27 @@ reference and the scan mental model.
 
 ---
 
+## 0. Start an assessment (recommended first step)
+
+```bash
+python main.py start testfire
+```
+
+Scaffolds `assessments/testfire/` (with a `target.yaml` and `captures/`), creates
+`testfire.db`, and sets it as the **active** database. Every later command then uses
+`testfire.db` automatically — no need to repeat `--db` — until you `start` a different
+assessment or pass an explicit `--db`:
+
+```bash
+python main.py scan --url https://demo.testfire.net --domain testfire.net --insecure
+python main.py report --domain testfire.net          # same DB, no --db needed
+python main.py scan ... --db other.db                # explicit --db always overrides
+```
+
+This keeps each engagement in its own database (instead of piling into the shared
+`asdf.db` scratch DB), and pairs naturally with `--archive` to snapshot the whole
+engagement. The active pointer lives in `.active_assessment.json` (git-ignored).
+
 ## 1. URL alone (anonymous discovery)
 
 ```bash
