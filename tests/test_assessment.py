@@ -76,6 +76,33 @@ def test_report_dir_defaults_to_active_assessment(tmp_path, monkeypatch):
     assert _resolved_report("custom").replace("\\", "/").endswith("reports/custom")
 
 
+def test_scan_archive_only_when_no_target(tmp_path, monkeypatch):
+    """`scan --archive` with an active assessment but no real target archives + resets."""
+    from typer.testing import CliRunner
+
+    from main import app
+
+    monkeypatch.chdir(tmp_path)
+    start_assessment("test1", root=tmp_path)  # scaffolds target.yaml (placeholder url) + test1.db
+
+    result = CliRunner().invoke(app, ["scan", "--archive"])
+    assert result.exit_code == 0
+    # Engagement DB swept into an archive; active assessment cleared.
+    assert not (tmp_path / "test1.db").exists()
+    assert list(tmp_path.glob("archives/test1_*/databases/test1.db"))
+    assert active_name(root=tmp_path) is None
+
+
+def test_scan_no_target_no_archive_errors(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from main import app
+
+    monkeypatch.chdir(tmp_path)  # no active assessment, no --url/--config
+    result = CliRunner().invoke(app, ["scan"])
+    assert result.exit_code == 2 and "target URL is required" in result.stdout
+
+
 def test_status_command(tmp_path, monkeypatch):
     from typer.testing import CliRunner
 

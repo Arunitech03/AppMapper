@@ -69,6 +69,12 @@ into `archives/<target>_<timestamp>/`, then **clears the active assessment point
 `status` reports none, and the workspace is clean for the next `start`. (`asdf.db` is always
 protected and never archived.)
 
+If there's **nothing new to scan** (no `--url`/`--config` and the active assessment's
+`target.yaml` is still the placeholder), `scan --archive` is **archive-only**: it skips the
+scan and just archives + resets — so it always works as a "close out" command. (The
+standalone `python main.py archive` does the same without the `scan` prefix, and also clears
+the active assessment.)
+
 ## 1. URL alone (anonymous discovery)
 
 ```bash

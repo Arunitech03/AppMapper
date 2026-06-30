@@ -154,6 +154,9 @@ def explore(
     )
 
 
+_SCAFFOLD_URL = "https://example.com"  # placeholder url written by `start` into target.yaml
+
+
 def _settings(db: str | None, report_dir: str | None, log_level: str, log_json: bool) -> Settings:
     from core.assessment import active_db
 
@@ -385,37 +388,58 @@ def scan(
         browser_tech = False
 
     # When no target is given, fall back to the active assessment's config (set by `start`).
+    from core.assessment import active_name, clear_active
+
     defaulted_config = False
     if url is None and config is None:
-        from core.assessment import active_name
-
         active = active_name()
         candidate = Path("assessments") / (active or "") / "target.yaml"
         if active and candidate.exists():
             config = str(candidate)
             defaulted_config = True
 
-    try:
-        target = load_target(
-            config_path=config,
-            url=url,
-            domain=domain,
-            username=username,
-            password=password,
-            jwt_token=jwt_token,
-            role=role,
-            session=session,
-            auth_mode=auth_mode,
-            exploration=exploration,
-        )
-    except (ValueError, OSError) as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(code=2) from exc
+    target = None
+    if url is not None or config is not None:
+        try:
+            target = load_target(
+                config_path=config,
+                url=url,
+                domain=domain,
+                username=username,
+                password=password,
+                jwt_token=jwt_token,
+                role=role,
+                session=session,
+                auth_mode=auth_mode,
+                exploration=exploration,
+            )
+        except (ValueError, OSError) as exc:
+            if not archive:
+                console.print(f"[red]{exc}[/red]")
+                raise typer.Exit(code=2) from exc
+        # An unedited scaffold (https://example.com from `start`) is not a real target.
+        if target is not None and defaulted_config and target.url.rstrip("/") == _SCAFFOLD_URL:
+            target = None
 
-    if defaulted_config and target.url.rstrip("/") == "https://example.com":
+    if target is None:
+        # Nothing to scan. With --archive, archive whatever's present and reset the
+        # active assessment (close-out); otherwise it's a usage error.
+        if archive:
+            from core.archive import archive_assessment
+
+            tgt = _infer_target() or active_name() or "assessment"
+            dest = archive_assessment(tgt, config_path=config, database_path=_db_file(settings))
+            console.print(f"[green]Archived (no scan target):[/green] {dest}")
+            cleared = clear_active()
+            if cleared:
+                console.print(
+                    f"[green]Active assessment cleared:[/green] {cleared}  "
+                    "[dim](run `start <name>` to begin a new one)[/dim]"
+                )
+            raise typer.Exit()
         console.print(
-            f"[red]Active assessment has no target set.[/red] Edit [cyan]{config}[/cyan] "
-            "(set `url:`) or pass --url."
+            "[red]A target URL is required.[/red] Pass --url or --config, or `start <name>` "
+            "and edit assessments/<name>/target.yaml."
         )
         raise typer.Exit(code=2)
     ctx = ScanContext(
@@ -499,11 +523,18 @@ def archive(
 ) -> None:
     """Archive the current assessment artifacts into archives/<target>_<timestamp>/."""
     from core.archive import archive_assessment
+    from core.assessment import active_name, clear_active
 
-    target = url or _infer_target() or "assessment"
+    target = url or _infer_target() or active_name() or "assessment"
     dest = archive_assessment(target, roles=list(role))
     console.print(f"[green]Assessment archived:[/green] {dest}")
     console.print("[dim]Repository cleaned · pointer updated: current_assessment[/dim]")
+    cleared = clear_active()
+    if cleared:
+        console.print(
+            f"[green]Active assessment cleared:[/green] {cleared}  "
+            "[dim](run `start <name>` to begin a new one)[/dim]"
+        )
 
 
 @app.command(name="migrate-workspace")
