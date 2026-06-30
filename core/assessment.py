@@ -80,6 +80,13 @@ def active_name(*, root: str | Path | None = None) -> str | None:
     return _read(root).get("name")
 
 
+def clear_active(*, root: str | Path | None = None) -> str | None:
+    """Remove the active-assessment pointer. Returns the name that was cleared."""
+    name = active_name(root=root)
+    _state_path(root).unlink(missing_ok=True)
+    return name
+
+
 def start_assessment(name: str, *, root: str | Path | None = None) -> dict:
     """Scaffold ``assessments/<name>/`` + ``<name>.db`` and set it active.
 

@@ -384,18 +384,40 @@ def scan(
         crawl = False
         browser_tech = False
 
-    target = load_target(
-        config_path=config,
-        url=url,
-        domain=domain,
-        username=username,
-        password=password,
-        jwt_token=jwt_token,
-        role=role,
-        session=session,
-        auth_mode=auth_mode,
-        exploration=exploration,
-    )
+    # When no target is given, fall back to the active assessment's config (set by `start`).
+    defaulted_config = False
+    if url is None and config is None:
+        from core.assessment import active_name
+
+        active = active_name()
+        candidate = Path("assessments") / (active or "") / "target.yaml"
+        if active and candidate.exists():
+            config = str(candidate)
+            defaulted_config = True
+
+    try:
+        target = load_target(
+            config_path=config,
+            url=url,
+            domain=domain,
+            username=username,
+            password=password,
+            jwt_token=jwt_token,
+            role=role,
+            session=session,
+            auth_mode=auth_mode,
+            exploration=exploration,
+        )
+    except (ValueError, OSError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=2) from exc
+
+    if defaulted_config and target.url.rstrip("/") == "https://example.com":
+        console.print(
+            f"[red]Active assessment has no target set.[/red] Edit [cyan]{config}[/cyan] "
+            "(set `url:`) or pass --url."
+        )
+        raise typer.Exit(code=2)
     ctx = ScanContext(
         target=target,
         timeout=settings.http_timeout,
@@ -449,6 +471,7 @@ def scan(
 
     if archive:
         from core.archive import archive_assessment
+        from core.assessment import clear_active
 
         dest = archive_assessment(
             target.url,
@@ -458,6 +481,13 @@ def scan(
         )
         console.print(f"[green]Assessment archived:[/green] {dest}")
         console.print("[dim]Repository cleaned · pointer: current_assessment[/dim]")
+        # Close out the engagement: clear the active pointer so `start` begins fresh.
+        cleared = clear_active()
+        if cleared:
+            console.print(
+                f"[green]Active assessment cleared:[/green] {cleared}  "
+                "[dim](run `start <name>` to begin a new one)[/dim]"
+            )
 
 
 @app.command()

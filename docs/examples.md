@@ -50,6 +50,24 @@ reports/testfire/
 └── report_2.html      report_2.md      report_2.json    ← scan #2
 ```
 
+**With an active assessment, `scan` needs no target flags** — it defaults `--config` to
+`assessments/<name>/target.yaml`, the DB to `<name>.db`, and reports to `reports/<name>/`.
+So once you've edited the config, the whole lifecycle is just:
+
+```bash
+python main.py start testfire           # scaffold + activate
+# …edit assessments/testfire/target.yaml…
+python main.py scan                     # uses the active config / DB / report dir
+python main.py scan --archive           # close out: archive everything, then clear the
+                                        # active assessment so you can start the next one
+python main.py start nextclient         # fresh engagement
+```
+
+`scan --archive` sweeps all artifacts (reports, captures, exploration, sessions, and the
+engagement DB) into `archives/<target>_<timestamp>/`, then **clears the active assessment
+pointer** — `status` reports none, and the workspace is clean for the next `start`.
+(`asdf.db` is always protected and never archived.)
+
 ## 1. URL alone (anonymous discovery)
 
 ```bash

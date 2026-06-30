@@ -7,6 +7,7 @@ import pytest
 from core.assessment import (
     active_db,
     active_name,
+    clear_active,
     set_active,
     start_assessment,
     validate_name,
@@ -55,6 +56,13 @@ def test_settings_falls_back_to_active_db(tmp_path, monkeypatch):
     assert _settings(None, None, "INFO", False).database_url == "sqlite:///testfire.db"
     # Explicit --db always wins.
     assert _settings("other.db", None, "INFO", False).database_url == "sqlite:///other.db"
+
+
+def test_clear_active(tmp_path):
+    set_active("testfire", "testfire.db", root=tmp_path)
+    assert clear_active(root=tmp_path) == "testfire"  # returns what it cleared
+    assert active_name(root=tmp_path) is None and active_db(root=tmp_path) is None
+    assert clear_active(root=tmp_path) is None  # idempotent / nothing to clear
 
 
 def test_report_dir_defaults_to_active_assessment(tmp_path, monkeypatch):
