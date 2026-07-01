@@ -143,6 +143,22 @@ def test_crawl_coverage_skipped_for_har_only_scan():
     assert out == ""
 
 
+def test_critical_secret_finding_includes_locations():
+    from modules.intelligence.executive_summary import _developer_points
+
+    js_intel = {
+        "frontend_secrets": [
+            {"name": "AWS Access Key ID", "severity": "High", "location": "https://x/api/v1/info"},
+            {"name": "AWS Access Key ID", "severity": "High", "location": "https://x/api/v2/users"},
+        ]
+    }
+    pts = _developer_points(js_intel, {}, {})
+    sec = next(p for p in pts if p["title"] == "High-severity secrets in frontend")
+    # The finding now names WHERE each secret was found (full URL) + a count.
+    assert "AWS Access Key ID @ https://x/api/v1/info" in sec["detail"]
+    assert "+1 more" in sec["detail"]
+
+
 def test_workflow_and_tree():
     data = {
         "crawl_endpoints": [

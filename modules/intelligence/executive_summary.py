@@ -117,15 +117,26 @@ def _developer_points(js_intel: dict, browser_intel: dict, recon_summary: dict) 
             "Informational",
         )
 
-    # Critical/high secrets present.
+    # Critical/high secrets present — name each with where it was found.
     high = [
         s for s in js_intel.get("frontend_secrets", []) if s["severity"] in {"Critical", "High"}
     ]
     if high:
+        by_name: dict[str, list[str]] = {}
+        for s in high:
+            by_name.setdefault(s["name"], []).append(s.get("location") or "")
+        parts = []
+        for name, locs in sorted(by_name.items()):
+            seen_locs = [loc for loc in dict.fromkeys(locs) if loc]
+            where = ""
+            if seen_locs:
+                where = f" @ {seen_locs[0]}" + (
+                    f" (+{len(seen_locs) - 1} more)" if len(seen_locs) > 1 else ""
+                )
+            parts.append(f"{name}{where}")
         add(
             "High-severity secrets in frontend",
-            "Secrets that should not ship to the browser: "
-            + ", ".join(sorted({s["name"] for s in high})),
+            "Secrets that should not ship to the browser — " + "; ".join(parts),
             "High",
         )
 
