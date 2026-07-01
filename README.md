@@ -153,7 +153,21 @@ python main.py auth capture --role admin --url https://demo.testfire.net   # nee
 **Active assessment.** After `start <name>`, every command uses `assessments/<name>/<name>.db` as its
 database **and** writes to `reports/<name>/` by default — no need to repeat `--db` /
 `--report-dir`. Explicit flags always override; with no active assessment the default DB
-is `asdf.db`. See [`docs/examples.md`](docs/examples.md) for the full workflow.
+is `asdf.db`. `stop` deactivates without archiving; `scan --archive` archives everything
+(reports, DBs, the `assessments/<name>/` folder) and clears the active assessment. See
+[`docs/examples.md`](docs/examples.md) for the full lifecycle.
+
+**Auth artifacts stay in the assessment.** `auth capture` and `auth explore` write into the
+active assessment — `assessments/<name>/sessions/<role>.json` and
+`assessments/<name>/exploration/<role>.{json,har}` (+ `<role>_browser/`) respectively —
+falling back to `assessments/default/…` when nothing is active (`--out` still overrides).
+
+**Capture auto-discovery.** When the active assessment has HARs in `captures/` **or**
+exploration captures in `exploration/` but no `users:` configured, `scan` builds one role
+per file (role = filename, trailing `_<name>` stripped) and **infers the target URL from
+the captured traffic** — so `start → drop HARs / auth explore → scan` needs no
+`--url` / `--har` / `--exploration`. A real `users:` list in `target.yaml`, or explicit
+`--url`/`--config`, always take precedence.
 
 Every command accepts `--db <file>` to choose the SQLite store and `--help` for full options.
 
@@ -199,6 +213,10 @@ For multi-role comparison use `--config` with a `users:` list instead.
 | `--har` | PATH | — | HAR file to parse (also extracts cookies/JWTs/`Authorization` as masked artifacts, and response **keys**). |
 | `--burp` | PATH | — | Burp Suite export (XML or JSON) to parse. |
 | `--exploration` | PATH | — | `exploration.json` from `auth explore` — becomes first-class input to workflow/role/API/graph/summary. |
+
+> **No flags needed inside an assessment:** HARs in `assessments/<name>/captures/` and
+> exploration captures in `assessments/<name>/exploration/` are **auto-discovered** — one
+> role per file — so a bare `scan` picks them up. See the *Capture auto-discovery* note above.
 
 ### Authenticated crawl (Tier 2)
 
@@ -279,8 +297,8 @@ python main.py scan --session sessions/admin.json --url https://app.example.com 
 | `start` | `<name>` (argument) | — (creates `assessments/<name>/` incl. `<name>.db`, sets it active) |
 | `status` | — | — (prints the active assessment) |
 | `stop` | — | — (clears the active pointer; no archiving, files kept) |
-| `auth capture` | `--url` | `--role` (def `admin`), `--out`, `--headless`, `--timeout` (def 60000 ms), `--insecure` |
-| `auth explore` | `--url` | `--role`, `--out`, `--har`, `--headless`, `--safe-mode`, `--debug-browser`, `--timeout`, `--insecure` |
+| `auth capture` | `--url` | `--role` (def `admin`), `--out`, `--headless`, `--timeout` (def 60000 ms), `--insecure` — writes to `assessments/<active-or-default>/sessions/<role>.json` |
+| `auth explore` | `--url` | `--role`, `--out`, `--har`, `--headless`, `--safe-mode`, `--debug-browser`, `--timeout`, `--insecure` — writes to `assessments/<active-or-default>/exploration/<role>.{json,har}` |
 | `report` | `--domain` | `--db`, `--report-dir` |
 | `list-assets` | `--domain` | `--db` |
 | `query` | `--q` | `--domain`, `--db` |
