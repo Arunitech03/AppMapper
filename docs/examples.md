@@ -50,16 +50,18 @@ reports/testfire/
 └── report_2.html      report_2.md      report_2.json    ← scan #2
 ```
 
-**HAR auto-discovery (no yaml needed).** If the active assessment has HARs in its
-`captures/` folder but no `users:` configured (or only the placeholder `target.yaml`),
-`scan` builds one role per HAR — role = filename with a trailing `_<assessment>` stripped
-(`user1_rni.har` → role `user1`) — and **infers the target URL from the captured traffic**.
-So you can skip the yaml entirely:
+**Capture auto-discovery (no yaml needed).** If the active assessment has HARs in
+`captures/` **or** exploration captures in `exploration/` (from `auth explore`) but no
+`users:` configured (or only the placeholder `target.yaml`), `scan` builds one role per
+file — role = filename with a trailing `_<assessment>` stripped (`user1_rni.har` → role
+`user1`) — and **infers the target URL from the captured traffic**. So you can skip the
+yaml entirely:
 
 ```bash
 python main.py start rni
-cp *.har assessments/rni/captures/      # drop the HAR(s) in
-python main.py scan --offline           # roles + target auto-built from the HARs
+cp *.har assessments/rni/captures/      # drop HAR(s) in …
+python main.py auth explore --role user2   # …or capture live (writes into the assessment)
+python main.py scan --offline           # roles + target auto-built; no --har / --exploration
 ```
 
 Explicit `--url` / `--config` always win, and a `target.yaml` with a real `users:` list

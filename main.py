@@ -466,22 +466,22 @@ def scan(
         if target is not None and defaulted_config and target.url.rstrip("/") == _SCAFFOLD_URL:
             target = None
 
-    # HAR auto-discovery: no usable target config (or a config with no users), but the
-    # active assessment has HARs in captures/ → build roles from the HAR filenames and
-    # infer the target URL from the captured traffic. (Explicit --url/--config win.)
+    # Capture auto-discovery: no usable target config (or a config with no users), but
+    # the active assessment has HARs in captures/ or exploration JSONs in exploration/ →
+    # build roles from the filenames and infer the target URL. (Explicit --url/--config win.)
     active = active_name()
     if active and url is None and (target is None or not target.users):
-        from core.assessment import build_target_from_hars
+        from core.assessment import build_target_from_captures
 
-        har_target = build_target_from_hars(active)
-        if har_target is not None:
+        discovered = build_target_from_captures(active)
+        if discovered is not None:
             if target is None:
-                target = har_target
-            else:  # keep the config's url/domain, just add the HAR-derived roles
-                target.users = har_target.users
+                target = discovered
+            else:  # keep the config's url/domain, just add the discovered roles
+                target.users = discovered.users
             console.print(
-                f"[dim]Auto-discovered {len(target.users)} role(s) from HARs in "
-                f"assessments/{active}/captures/ → target {target.url}[/dim]"
+                f"[dim]Auto-discovered {len(target.users)} role(s) from captures/exploration "
+                f"in assessments/{active}/ → target {target.url}[/dim]"
             )
 
     if target is None:

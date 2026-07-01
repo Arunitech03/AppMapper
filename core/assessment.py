@@ -100,14 +100,26 @@ _HOST_NOISE = (
 )
 
 
-def build_target_from_hars(name: str, *, root: str | Path | None = None):
-    """Build a TargetInput from ``assessments/<name>/captures/*.har`` — one role per
-    HAR (role = filename, trailing ``_<name>`` stripped), with the target URL inferred
-    from the most-requested in-scope host. Returns None when there are no HARs.
+def _role_from_filename(stem: str, name: str) -> str:
+    """``user1_rni`` (assessment ``rni``) -> ``user1``; otherwise the stem unchanged."""
+    if stem.endswith("_" + name) and len(stem) > len(name) + 1:
+        return stem[: -len(name) - 1]
+    return stem
+
+
+def build_target_from_captures(name: str, *, root: str | Path | None = None):
+    """Build a TargetInput from an assessment's captured inputs — HARs in
+    ``captures/*.har`` (``auth_mode=har``) and exploration JSONs in
+    ``exploration/*.json`` (from ``auth explore``). One role per file (role = filename,
+    trailing ``_<name>`` stripped; exploration wins when a role has both). The target
+    URL is inferred from the captured traffic. Returns None when there's nothing to
+    discover.
     """
     base = _root(root)
-    hars = sorted((base / "assessments" / name / "captures").glob("*.har"))
-    if not hars:
+    adir = base / "assessments" / name
+    hars = sorted((adir / "captures").glob("*.har"))
+    explorations = sorted((adir / "exploration").glob("*.json"))
+    if not hars and not explorations:
         return None
 
     from collections import Counter
@@ -118,25 +130,35 @@ def build_target_from_hars(name: str, *, root: str | Path | None = None):
     from parsers.har_parser import parse_har
 
     hosts: Counter = Counter()
-    users: list[UserCredential] = []
-    for har in hars:
-        role = har.stem
-        if role.endswith("_" + name) and len(role) > len(name) + 1:
-            role = role[: -len(name) - 1]
+
+    def _count(har_path: Path) -> None:
         try:
-            items = parse_har(str(har))
+            items = parse_har(str(har_path))
         except (OSError, ValueError):
-            items = []
+            return
         for it in items:
             host = urlparse(it.url).netloc.lower()
             if host and not any(n in host for n in _HOST_NOISE):
                 hosts[host] += 1
-        users.append(UserCredential(role=role, har=str(har), auth_mode="har"))
+
+    by_role: dict[str, UserCredential] = {}
+    for har in hars:
+        _count(har)
+        role = _role_from_filename(har.stem, name)
+        by_role[role] = UserCredential(role=role, har=str(har), auth_mode="har")
+    for expl in explorations:
+        sibling = expl.with_suffix(".har")  # `auth explore` always writes a sibling HAR
+        if sibling.is_file():
+            _count(sibling)
+        role = _role_from_filename(expl.stem, name)
+        by_role[role] = UserCredential(role=role, exploration=str(expl))  # exploration wins
 
     if not hosts:
         return None
     top_host = hosts.most_common(1)[0][0]
-    return TargetInput(url=f"https://{top_host}", domain=registrable_domain(top_host), users=users)
+    return TargetInput(
+        url=f"https://{top_host}", domain=registrable_domain(top_host), users=list(by_role.values())
+    )
 
 
 def start_assessment(name: str, *, root: str | Path | None = None) -> dict:

@@ -62,26 +62,26 @@ def test_settings_falls_back_to_active_db(tmp_path, monkeypatch):
     assert _settings("other.db", None, "INFO", False).database_url == "sqlite:///other.db"
 
 
-def test_build_target_from_hars(tmp_path):
+def _har_json(*urls):
     import json
 
-    from core.assessment import build_target_from_hars
+    return json.dumps({"log": {"entries": [{"request": {"url": u}} for u in urls]}})
+
+
+def test_build_target_from_captures_hars(tmp_path):
+    from core.assessment import build_target_from_captures
 
     cap = tmp_path / "assessments" / "rni" / "captures"
     cap.mkdir(parents=True)
-    har = {
-        "log": {
-            "entries": [
-                {"request": {"url": "https://app.sensus.com/a"}},
-                {"request": {"url": "https://app.sensus.com/b"}},
-                {"request": {"url": "https://browser-intake-datadoghq.com/rum"}},  # noise
-            ]
-        }
-    }
-    (cap / "user1_rni.har").write_text(json.dumps(har))
-    (cap / "user2_rni.har").write_text(json.dumps(har))
+    body = _har_json(
+        "https://app.sensus.com/a",
+        "https://app.sensus.com/b",
+        "https://browser-intake-datadoghq.com/rum",  # noise, filtered
+    )
+    (cap / "user1_rni.har").write_text(body)
+    (cap / "user2_rni.har").write_text(body)
 
-    t = build_target_from_hars("rni", root=tmp_path)
+    t = build_target_from_captures("rni", root=tmp_path)
     assert t is not None
     # role = filename with the trailing "_rni" stripped; one role per HAR; auth_mode=har
     assert {u.role for u in t.users} == {"user1", "user2"}
@@ -89,8 +89,24 @@ def test_build_target_from_hars(tmp_path):
     # URL inferred from the most-requested in-scope host (telemetry filtered out)
     assert t.url == "https://app.sensus.com" and t.domain == "sensus.com"
 
-    # No HARs -> None.
-    assert build_target_from_hars("missing", root=tmp_path) is None
+    # Nothing to discover -> None.
+    assert build_target_from_captures("missing", root=tmp_path) is None
+
+
+def test_build_target_from_captures_exploration(tmp_path):
+    from core.assessment import build_target_from_captures
+
+    exp = tmp_path / "assessments" / "rni" / "exploration"
+    exp.mkdir(parents=True)
+    (exp / "user1_rni.json").write_text("{}")  # exploration data (content irrelevant here)
+    (exp / "user1_rni.har").write_text(_har_json("https://app.sensus.com/x"))  # sibling HAR
+
+    t = build_target_from_captures("rni", root=tmp_path)
+    assert t is not None
+    u = next(u for u in t.users if u.role == "user1")
+    assert u.exploration and u.exploration.endswith("exploration/user1_rni.json")
+    assert u.har is None  # exploration role, not a HAR role
+    assert t.url == "https://app.sensus.com"
 
 
 def test_auth_out_dir_defaults_to_assessment(tmp_path, monkeypatch):
