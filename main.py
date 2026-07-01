@@ -62,7 +62,7 @@ def capture(
     from modules.auth.playwright_auth import PlaywrightNotInstalled
     from modules.auth.playwright_auth import capture as do_capture
 
-    out_path = out or f"sessions/{role}.json"
+    out_path = out or str(_auth_out_dir("sessions") / f"{role}.json")
     try:
         written = do_capture(
             role,
@@ -115,13 +115,16 @@ def explore(
     uploads, downloads, WebSocket connections and (masked) auth artifacts.
 
     Finish by CLOSING THE BROWSER WINDOW or pressing Enter in this terminal — whichever
-    first. Feed the result into a scan with `--exploration exploration/<role>.json`.
+    first. Output is written into the active assessment (assessments/<name>/exploration/,
+    or assessments/default/ when none is active). Feed it to a scan with
+    `--exploration <path>` (the exact path is printed below).
     """
     from modules.auth.explorer import explore as do_explore
     from modules.auth.playwright_auth import PlaywrightNotInstalled
 
-    out_json = out or f"exploration/{role}.json"
-    har_path = har or f"exploration/{role}.har"
+    exp_dir = _auth_out_dir("exploration")  # assessments/<active-or-default>/exploration/
+    out_json = out or str(exp_dir / f"{role}.json")
+    har_path = har or str(exp_dir / f"{role}.har")
     try:
         data = do_explore(
             role,
@@ -164,6 +167,17 @@ def _active_assessment_dir() -> str | None:
     name = active_name()
     folder = Path("assessments") / (name or "")
     return str(folder) if name and folder.is_dir() else None
+
+
+def _auth_out_dir(subdir: str) -> Path:
+    """Output directory for `auth` artifacts, kept inside the assessment:
+    ``assessments/<active-or-default>/<subdir>/`` (created if missing). Falls back to
+    the ``default`` assessment when nothing is active."""
+    from core.assessment import active_name
+
+    out = Path("assessments") / (active_name() or "default") / subdir
+    out.mkdir(parents=True, exist_ok=True)
+    return out
 
 
 def _settings(db: str | None, report_dir: str | None, log_level: str, log_json: bool) -> Settings:

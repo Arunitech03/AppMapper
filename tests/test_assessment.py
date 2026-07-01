@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from core.assessment import (
@@ -89,6 +91,44 @@ def test_build_target_from_hars(tmp_path):
 
     # No HARs -> None.
     assert build_target_from_hars("missing", root=tmp_path) is None
+
+
+def test_auth_out_dir_defaults_to_assessment(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from main import _auth_out_dir
+
+    # No active assessment -> assessments/default/<subdir>/.
+    d = _auth_out_dir("exploration")
+    assert d == Path("assessments/default/exploration") and d.is_dir()
+
+    # Active assessment -> its folder.
+    set_active("rni", "assessments/rni/rni.db", root=tmp_path)
+    d = _auth_out_dir("sessions")
+    assert d == Path("assessments/rni/sessions") and d.is_dir()
+
+
+def test_auth_explore_writes_into_assessment(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    import main
+
+    monkeypatch.chdir(tmp_path)
+    set_active("rni", "assessments/rni/rni.db", root=tmp_path)
+
+    captured: dict[str, str] = {}
+
+    def fake_explore(role, url, out_json, har_path, **kw):  # noqa: ANN001
+        captured["out_json"] = str(out_json)
+        captured["har"] = str(har_path)
+        return dict.fromkeys(
+            ("navigations", "api_calls", "forms", "uploads", "downloads", "websockets"), []
+        ) | {"technologies": {}}
+
+    monkeypatch.setattr("modules.auth.explorer.explore", fake_explore)
+    result = CliRunner().invoke(main.app, ["auth", "explore", "--url", "https://x", "--role", "u1"])
+    assert result.exit_code == 0
+    assert captured["out_json"].endswith("assessments/rni/exploration/u1.json")
+    assert captured["har"].endswith("assessments/rni/exploration/u1.har")
 
 
 def test_clear_active(tmp_path):

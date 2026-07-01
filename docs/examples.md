@@ -163,14 +163,18 @@ Two steps: capture the session by logging in manually, then scan with it.
 ```bash
 # (a) opens a real browser; log in by hand (IdP / MFA / SSO are fine), session is saved
 ./.venv/bin/python main.py auth capture --url https://demo.testfire.net --role admin
-#   → writes sessions/admin.json
+#   → writes assessments/<active-or-default>/sessions/admin.json (path is printed)
 
-# (b) scan, reusing that authenticated session
+# (b) scan, reusing that authenticated session (use the path printed above)
 ./.venv/bin/python main.py scan \
   --url https://demo.testfire.net --domain testfire.net \
-  --session sessions/admin.json --role admin \
+  --session assessments/default/sessions/admin.json --role admin \
   --report-dir testfire
 ```
+
+> Auth artifacts land inside the assessment: with an assessment active (`start <name>`)
+> they go to `assessments/<name>/…`; otherwise to `assessments/default/…`. `--out` still
+> overrides the path.
 
 ## 6. Capture authentication **and** explore all the links
 
@@ -181,12 +185,12 @@ browser — it never clicks or navigates for you.
 ```bash
 # (a) browser opens; log in and click around; finish by CLOSING the window (or pressing Enter)
 ./.venv/bin/python main.py auth explore --url https://demo.testfire.net --role admin
-#   → writes exploration/admin.json (+ exploration/admin.har)
+#   → writes assessments/<active-or-default>/exploration/admin.{json,har} (path is printed)
 
-# (b) feed the exploration into a scan
+# (b) feed the exploration into a scan (use the path printed above)
 ./.venv/bin/python main.py scan \
   --url https://demo.testfire.net --domain testfire.net \
-  --exploration exploration/admin.json \
+  --exploration assessments/default/exploration/admin.json \
   --report-dir testfire
 ```
 
