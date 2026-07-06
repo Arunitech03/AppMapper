@@ -751,4 +751,15 @@ class Database:
             result["jwt_authorization"] = harvest_jwt_summaries(
                 har_rows, burp_rows, show_pii=show_pii
             )
+
+            # Cookie JWT Intelligence: decode JWTs carried inside captured cookies at
+            # the same fetch boundary (cookie values are raw in har_requests.cookies but
+            # not part of the dump). Only the MASKED summary enters `data`.
+            from modules.intelligence.jwt_intelligence import harvest_cookie_jwts
+
+            cookie_rows = [
+                {"cookies": json.loads(r.cookies) if r.cookies else {}, "role": r.role}
+                for r in target.har_requests
+            ]
+            result["cookie_jwt_authorization"] = harvest_cookie_jwts(cookie_rows, show_pii=show_pii)
             return result

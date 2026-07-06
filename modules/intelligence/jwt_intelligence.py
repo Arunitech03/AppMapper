@@ -244,6 +244,33 @@ def harvest_jwt_summaries(
     return summaries
 
 
+def harvest_cookie_jwts(cookie_rows: list[dict], *, show_pii: bool = False) -> list[dict]:
+    """Decode JWTs carried inside captured cookies (masked output).
+
+    ``cookie_rows`` items carry ``{cookies: {name: value}, role}`` — the raw
+    name/value pairs from captured HAR requests (``har_requests.cookies``). Every
+    cookie value is scanned for an embedded JWT; if present it is decoded offline
+    (no signature verification) into the same summary shape as a bearer token, tagged
+    with ``cookie_name`` and ``origin="cookie"``. Returns one summary per distinct
+    token. Raw tokens are never returned; PII is masked unless ``show_pii``.
+    """
+    summaries: list[dict] = []
+    seen: set[str] = set()
+    for row in cookie_rows or []:
+        role = row.get("role")
+        for name, value in (row.get("cookies") or {}).items():
+            for tok in find_jwts(str(value or "")):
+                if tok in seen:
+                    continue
+                seen.add(tok)
+                summary = analyze_jwt(tok, role=role, show_pii=show_pii)
+                if summary:
+                    summary["cookie_name"] = name
+                    summary["origin"] = "cookie"
+                    summaries.append(summary)
+    return summaries
+
+
 def find_jwts(*texts: str) -> list[str]:
     """Return every JWT-looking string found across ``texts`` (order-preserving)."""
     found: list[str] = []

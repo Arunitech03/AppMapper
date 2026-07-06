@@ -8,6 +8,7 @@ import json
 from modules.intelligence.jwt_intelligence import (
     analyze_jwt,
     build_jwt_intelligence,
+    harvest_cookie_jwts,
     harvest_jwt_summaries,
 )
 
@@ -264,3 +265,25 @@ def test_no_secret_leak():
 def test_non_jwt_returns_none():
     assert analyze_jwt("not-a-token") is None
     assert analyze_jwt("") is None
+
+
+def test_harvest_cookie_jwts_decodes_jwt_cookie_ignores_opaque():
+    rows = [
+        {
+            "cookies": {"KEYCLOAK_IDENTITY": _token(), "JSESSIONID": "A1B2C3D4E5F6opaque"},
+            "role": "user",
+        }
+    ]
+    out = harvest_cookie_jwts(rows)
+    assert len(out) == 1
+    s = out[0]
+    assert s["cookie_name"] == "KEYCLOAK_IDENTITY"
+    assert s["origin"] == "cookie"
+    assert s["identity_provider"] == "Keycloak"
+    # raw token never surfaces in the summary
+    assert _token() not in json.dumps(s)
+
+
+def test_harvest_cookie_jwts_empty():
+    assert harvest_cookie_jwts([]) == []
+    assert harvest_cookie_jwts([{"cookies": {"sid": "plain"}, "role": "x"}]) == []

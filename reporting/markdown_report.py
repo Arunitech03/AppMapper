@@ -30,6 +30,10 @@ def render_markdown(
     # Intelligence-first front matter — the "first two pages" (sections 1-6).
     _render_executive_intelligence(report, h, lines)
 
+    # Cookie JWT Intelligence — decoded JWTs carried inside auth cookies (runs
+    # independently of the bearer-token auth suite so cookie-only sessions still render).
+    _render_cookie_jwt_intelligence(report, h, lines)
+
     # File Upload & Download Intelligence (high-value attack surface, kept prominent).
     _render_file_intelligence(report, h, lines)
 
@@ -698,6 +702,96 @@ def _render_subdomain_intelligence(report: dict, h, lines: list[str]) -> None:
     points = si.get("developer_points") or []
     if points:
         lines.append("**Subdomain Discussion Points**")
+        lines.extend(f"{i}. {pt}" for i, pt in enumerate(points, start=1))
+        lines.append("")
+
+
+def _render_cookie_jwt_intelligence(report: dict, h, lines: list[str]) -> None:
+    """Cookie JWT Intelligence — JWTs decoded from authentication cookies."""
+    cji = report.get("cookie_jwt_intelligence") or {}
+    jwt_cookies = cji.get("jwt_cookies") or []
+    if not jwt_cookies:
+        return
+
+    h(2, "Cookie JWT Intelligence")
+    s = cji.get("summary") or {}
+    lines.append(
+        f"- **Cookies Analyzed:** {s.get('cookies_analyzed', 0)} · **JWT Cookies:** "
+        f"{s.get('jwt_cookies', 0)} · **Decoded:** {s.get('decoded', 0)} · **Admin Cookie "
+        f"JWTs:** {s.get('admin_cookie_jwts', 0)} · **High-Risk:** {s.get('high_risk', 0)} · "
+        f"**Opaque:** {s.get('opaque_cookies', 0)}\n"
+    )
+    model = cji.get("authentication_model")
+    if model:
+        lines.append(f"- **Authentication Model:** {model}\n")
+
+    h(3, f"Cookie JWT Inventory ({len(jwt_cookies)})")
+    lines.append("| Cookie | Type | Decoded | HttpOnly | Secure | SameSite | Roles | Risk |")
+    lines.append("| --- | --- | :---: | :---: | :---: | --- | :---: | --- |")
+    for c in jwt_cookies:
+        lines.append(
+            f"| `{c['cookie']}` | {c['type']} | {c['decoded']} | {c['httponly']} | "
+            f"{c['secure']} | {c['samesite']} | {c['roles']} | {c['risk']} |"
+        )
+    lines.append("")
+
+    for card in cji.get("cookie_cards") or []:
+        ident = card.get("identity") or {}
+        sess = card.get("session") or {}
+        authz = card.get("authorization") or {}
+        attrs = card.get("attributes") or {}
+        hdr = card.get("header") or {}
+        h(3, f"Cookie: {card['cookie']} — {card['token_type']}")
+        lines.append(
+            f"- **Header:** alg {hdr.get('alg', '—')} · typ {hdr.get('typ', '—')} · "
+            f"{hdr.get('signature_model', '—')} · Key rotation {hdr.get('key_rotation', '—')}"
+        )
+        lines.append(
+            f"- **Identity:** {ident.get('identity_provider', '—')}"
+            f"{'/' + ident['realm'] if ident.get('realm') else ''} · Client "
+            f"{ident.get('client') or '—'} · User {ident.get('username') or '—'} · Subject "
+            f"{ident.get('subject') or '—'}"
+        )
+        lines.append(
+            f"- **Session:** Issued {sess.get('issued_at') or '—'} · Expires "
+            f"{sess.get('expires_at') or '—'} · Lifetime {sess.get('token_lifetime') or '—'} "
+            f"(**{sess.get('lifetime_class') or '—'}**) · State {sess.get('session_state') or '—'}"
+        )
+        admins = authz.get("administrative_roles") or []
+        lines.append(
+            f"- **Authorization:** {authz.get('total_roles', 0)} role(s) across "
+            f"{len(authz.get('applications') or [])} app(s) · Admin {len(admins)}"
+            + (f" ({', '.join(admins[:8])})" if admins else "")
+        )
+        trust = card.get("trust_relationships") or []
+        if trust:
+            lines.append(f"- **Trust Relationships:** {', '.join(trust)}")
+        lines.append(
+            f"- **Cookie Attributes:** HttpOnly {attrs.get('httponly', '—')} · Secure "
+            f"{attrs.get('secure', '—')} · SameSite {attrs.get('samesite', '—')} · Domain "
+            f"{attrs.get('domain') or '—'} · Path {attrs.get('path') or '—'}"
+        )
+        lines.append(f"- **Risk:** {card.get('risk', '—')}\n")
+
+    corr = cji.get("correlation") or []
+    if corr:
+        h(3, "Correlation")
+        lines.append("```")
+        lines.extend(corr)
+        lines.append("```\n")
+
+    risks = cji.get("risk_analysis") or []
+    if risks:
+        h(3, "Risk Analysis")
+        lines.append("| Risk | Severity | Impact |")
+        lines.append("| --- | --- | --- |")
+        for r in risks:
+            lines.append(f"| {r['title']} | {r['risk']} | {r['impact']} |")
+        lines.append("")
+
+    points = cji.get("developer_points") or []
+    if points:
+        lines.append("**Cookie JWT Discussion Points**")
         lines.extend(f"{i}. {pt}" for i, pt in enumerate(points, start=1))
         lines.append("")
 

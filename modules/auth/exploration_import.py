@@ -386,6 +386,20 @@ def browser_intel_to_findings(role: str, bi: dict) -> list[IntelFinding]:
             extra=s,
         )
 
+    # Cookie JWT Intelligence: JWTs decoded from raw cookie values at capture time.
+    # Persisted as cookie_jwt findings so the builder can decode cookies that never
+    # appear as a request header (the common case — HAR exports strip Cookie headers).
+    for s in bi.get("cookie_jwt_authorization", []) or []:
+        add(
+            "cookie_jwt",
+            "Authorization",
+            f"{s.get('cookie_name') or 'cookie'}: "
+            f"{s.get('client') or 'jwt'}@{s.get('realm') or s.get('identity_provider') or '?'}",
+            value=s.get("token_masked"),
+            source="exploration",
+            extra=s,
+        )
+
     for flag in bi.get("feature_flags", []):
         add(
             "feature_flag",

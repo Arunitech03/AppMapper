@@ -19,6 +19,7 @@ from modules.intelligence.asset_inventory import build_asset_intelligence
 from modules.intelligence.auth_intelligence import build_auth_intelligence
 from modules.intelligence.authz_candidates import build_authz_candidates
 from modules.intelligence.browser_intelligence import build_browser_intelligence
+from modules.intelligence.cookie_jwt_intelligence import build_cookie_jwt_intelligence
 from modules.intelligence.dns_intelligence import build_dns_intelligence
 from modules.intelligence.domain_classifier import build_domain_intel
 from modules.intelligence.executive_summary import build_executive_intelligence
@@ -243,6 +244,13 @@ def build_report(
     if fi_points:
         ei = report.setdefault("executive_intelligence", {})
         ei.setdefault("developer_discussion_points", []).extend(fi_points)
+    # Cookie JWT Intelligence runs after auth + JWT intelligence (it may upgrade the
+    # authentication model when a cookie carries a JWT).
+    report["cookie_jwt_intelligence"] = build_cookie_jwt_intelligence(report, data)
+    cji_points = (report["cookie_jwt_intelligence"] or {}).get("high_value_findings") or []
+    if cji_points:
+        ei = report.setdefault("executive_intelligence", {})
+        ei.setdefault("developer_discussion_points", []).extend(cji_points)
     report["pentest_matrix"] = build_pentest_matrix(report)
     return report
 

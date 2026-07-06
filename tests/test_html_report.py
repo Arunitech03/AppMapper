@@ -268,6 +268,42 @@ def test_file_intelligence_section_and_dashboard():
     assert "Anonymous" in html and '<div class="panel sev-high">' in html
 
 
+def test_cookie_jwt_intelligence_section_and_dashboard():
+    tok = _token()
+    data = dict(
+        _data(),
+        cookie_jwt_authorization=[
+            dict(analyze_jwt(tok, role="test1"), cookie_name="KEYCLOAK_IDENTITY", origin="cookie")
+        ],
+        auth_artifacts=[
+            {
+                "kind": "cookie",
+                "name": "KEYCLOAK_IDENTITY",
+                "value_masked": "eyJh…SIG (900 chars)",
+                "source": "exploration",
+            },
+            {"kind": "cookie", "name": "JSESSIONID", "value_masked": "A1B2…9Z8Y (32 chars)"},
+        ],
+        intel_findings=[
+            {
+                "kind": "cookie_attr",
+                "name": "KEYCLOAK_IDENTITY",
+                "extra": {"httpOnly": False, "secure": True, "sameSite": "Lax"},
+            }
+        ],
+    )
+    html = render_html(data)
+    # Top-level expanded section, placed after the bearer JWT Deep Dive.
+    assert '<section id="s-cookie-jwt-intelligence">' in html
+    assert html.index("s-cookie-jwt-intelligence") > html.index("s-jwt-intelligence-deep-dive")
+    # Dashboard KPI card + decoded cookie visible.
+    assert "JWT Cookies" in html and "KEYCLOAK_IDENTITY" in html
+    # Auth model upgraded once a cookie carries a JWT.
+    assert "Hybrid Cookie + JWT" in html
+    # Raw token never rendered.
+    assert tok not in html
+
+
 def test_critical_findings_are_alert_panels():
     html = render_html(_data())
     assert '<div class="panel sev-high">' in html  # admin-roles finding -> High panel

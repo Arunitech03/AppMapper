@@ -632,12 +632,15 @@ def explore(
         # Cookies with attributes (Feature 3) — context.cookies() needs no JS, so it
         # runs even in safe_mode. Values are masked.
         cookies_intel: list[dict] = []
+        raw_cookie_map: dict[str, str] = {}
         if browser_open:
             try:
                 for c in context.cookies() or []:
+                    name = c.get("name", "")
+                    raw_cookie_map[name] = str(c.get("value", ""))
                     cookies_intel.append(
                         {
-                            "name": c.get("name", ""),
+                            "name": name,
                             "domain": c.get("domain", ""),
                             "path": c.get("path", "/"),
                             "secure": bool(c.get("secure")),
@@ -645,11 +648,21 @@ def explore(
                             "sameSite": c.get("sameSite"),
                             "expires": c.get("expires"),
                             "value_masked": mask_secret(str(c.get("value", ""))),
-                            "session_cookie": is_session_cookie(c.get("name", "")),
+                            "session_cookie": is_session_cookie(name),
                         }
                     )
             except BaseException:  # noqa: BLE001
                 pass
+
+        # Cookie JWT authorization — decoded from the RAW cookie values captured above,
+        # before they are masked (only masked summaries are emitted, never the raw token).
+        from modules.intelligence.jwt_intelligence import harvest_cookie_jwts
+
+        cookie_jwt_intel = (
+            harvest_cookie_jwts([{"cookies": raw_cookie_map, "role": role}])
+            if raw_cookie_map
+            else []
+        )
 
         # Browser intelligence — ONE end-of-session JS read (skipped in safe_mode).
         raw_intel: dict = {}
@@ -661,6 +674,7 @@ def explore(
         browser_intelligence = _build_browser_intel(
             role, raw_intel, cookies_intel, csp_seen, cors_seen, ws_schemas
         )
+        browser_intelligence["cookie_jwt_authorization"] = cookie_jwt_intel
 
         # Build + WRITE the capture BEFORE closing, so it is never lost even if the
         # browser/context is already gone.
