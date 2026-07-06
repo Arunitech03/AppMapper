@@ -213,7 +213,8 @@ def test_passive_subdomain_intelligence_section():
     if "s-dns-intelligence" in html:
         assert pos < html.index("s-dns-intelligence")
     # Summary cards prepended + source attribution visible in the table.
-    assert html.index('class="authcards"', pos) - pos < 2500
+    sec = html.index('<section id="s-passive-subdomain-intelligence">')
+    assert html.index('class="authcards"', sec) - sec < 2500
     assert "AlienVault OTX" in html and "RapidDNS" in html
 
 
@@ -302,6 +303,40 @@ def test_cookie_jwt_intelligence_section_and_dashboard():
     assert "Hybrid Cookie + JWT" in html
     # Raw token never rendered.
     assert tok not in html
+
+
+def test_storage_intelligence_section_and_dashboard():
+    import base64 as _b
+
+    def b64(o):
+        return _b.b64encode(json.dumps(o).encode()).decode()
+
+    data = dict(
+        _data(),
+        auth_artifacts=[
+            {
+                "kind": "local_storage",
+                "name": "currentUser",
+                "value_masked": b64({"username": "admin", "tenant": "acme"}),
+                "role": "test1",
+            },
+            {
+                "kind": "local_storage",
+                "name": "roles",
+                "value_masked": b64(["Admin"]),
+                "role": "test1",
+            },
+        ],
+    )
+    html = render_html(data)
+    # Top-level expanded section, placed after the JWT deep dive (auth cluster).
+    assert '<section id="s-browser-storage-intelligence">' in html
+    assert html.index('<section id="s-browser-storage-intelligence">') > html.index(
+        "s-jwt-intelligence-deep-dive"
+    )
+    # Dashboard KPI cards + decoded content visible.
+    assert "Storage Items" in html and "Client-Side Roles" in html
+    assert "currentUser" in html and "Identity" in html
 
 
 def test_critical_findings_are_alert_panels():

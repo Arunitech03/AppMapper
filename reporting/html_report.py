@@ -29,6 +29,7 @@ _INSIGHT_ORDER = (
     "Authentication Token Inventory",
     "JWT Intelligence Deep Dive",
     "Cookie JWT Intelligence",
+    "Browser Storage Intelligence",
     "User Intelligence",
     "Authentication Artifacts Summary",
     "Role Intelligence",
@@ -248,6 +249,14 @@ def _kpi_cards(report: dict) -> str:
             ("JWT Cookies", cji.get("jwt_cookies", 0), "purple"),
             ("Admin Cookie JWTs", cji.get("admin_cookie_jwts", 0), "orange"),
             ("High-Risk Cookies", cji.get("high_risk", 0), "red"),
+        ]
+    si = (report.get("storage_intelligence") or {}).get("summary") or {}
+    if si.get("total_items"):
+        cards += [
+            ("Storage Items", si.get("total_items", 0), "teal"),
+            ("Decoded Values", si.get("decoded_values", 0), "blue"),
+            ("Client-Side Roles", si.get("client_side_roles", 0), "orange"),
+            ("Storage Secrets", si.get("secrets", 0), "red"),
         ]
     items = "".join(
         f'<div class="kpi {cls}"><div class="v">{v}</div>'

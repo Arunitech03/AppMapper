@@ -32,6 +32,7 @@ from modules.intelligence.recon_intelligence import build_recon_intelligence
 from modules.intelligence.redirect_intelligence import build_redirect_intelligence
 from modules.intelligence.role_visibility import build_role_visibility
 from modules.intelligence.session_inventory import build_session_inventory
+from modules.intelligence.storage_intelligence import build_storage_intelligence
 from modules.intelligence.subdomain_intelligence import build_subdomain_intelligence
 from modules.intelligence.token_inventory import build_token_inventory
 from modules.intelligence.workflow_mapper import build_workflow, render_tree
@@ -251,6 +252,13 @@ def build_report(
     if cji_points:
         ei = report.setdefault("executive_intelligence", {})
         ei.setdefault("developer_discussion_points", []).extend(cji_points)
+    # Browser Storage Intelligence — recursively decode + classify every storage artifact
+    # (runs after cookie/JWT intelligence so it can correlate decoded token findings).
+    report["storage_intelligence"] = build_storage_intelligence(report, data)
+    si_points = (report["storage_intelligence"] or {}).get("high_value_findings") or []
+    if si_points:
+        ei = report.setdefault("executive_intelligence", {})
+        ei.setdefault("developer_discussion_points", []).extend(si_points)
     report["pentest_matrix"] = build_pentest_matrix(report)
     return report
 

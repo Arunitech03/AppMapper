@@ -34,6 +34,9 @@ def render_markdown(
     # independently of the bearer-token auth suite so cookie-only sessions still render).
     _render_cookie_jwt_intelligence(report, h, lines)
 
+    # Browser Storage Intelligence — recursively decoded + classified storage artifacts.
+    _render_storage_intelligence(report, h, lines)
+
     # File Upload & Download Intelligence (high-value attack surface, kept prominent).
     _render_file_intelligence(report, h, lines)
 
@@ -794,6 +797,103 @@ def _render_cookie_jwt_intelligence(report: dict, h, lines: list[str]) -> None:
         lines.append("**Cookie JWT Discussion Points**")
         lines.extend(f"{i}. {pt}" for i, pt in enumerate(points, start=1))
         lines.append("")
+
+
+def _render_storage_intelligence(report: dict, h, lines: list[str]) -> None:
+    """Browser Storage Intelligence — recursively decoded + classified storage."""
+    si = report.get("storage_intelligence") or {}
+    inv = si.get("inventory") or []
+    if not inv:
+        return
+
+    h(2, "Browser Storage Intelligence")
+    s = si.get("summary") or {}
+    lines.append(
+        f"- **Cookies:** {s.get('cookies', 0)} · **localStorage:** "
+        f"{s.get('local_storage_keys', 0)} · **sessionStorage:** "
+        f"{s.get('session_storage_keys', 0)} · **Decoded:** {s.get('decoded_values', 0)} · "
+        f"**JWTs:** {s.get('jwts', 0)} · **JSON:** {s.get('json_objects', 0)} · "
+        f"**Secrets:** {s.get('secrets', 0)} · **Client-Side Roles:** "
+        f"{s.get('client_side_roles', 0)} · **High-Risk:** {s.get('high_risk', 0)}\n"
+    )
+
+    h(3, f"Decoded Storage Inventory ({len(inv)})")
+    lines.append("| Storage | Key | Original Type | Decoded Type | Classification | Risk |")
+    lines.append("| --- | --- | --- | --- | --- | --- |")
+    for i in inv:
+        lines.append(
+            f"| {i['storage']} | `{i['key']}` | {i['original_type']} | {i['decoded_type']} | "
+            f"{i['classification']} | {i['risk']} |"
+        )
+    lines.append("")
+
+    cards = si.get("decoded_cards") or []
+    if cards:
+        h(3, "Decoded Values")
+        for c in cards:
+            lines.append(
+                f"**{c['storage']} · `{c['key']}`** — {c['classification']} ({c['chain']})"
+            )
+            if c.get("jwt"):
+                j = c["jwt"]
+                lines.append(
+                    f"- JWT: {j.get('identity_provider', '—')}"
+                    f"{'/' + j['realm'] if j.get('realm') else ''} · user "
+                    f"{(j.get('user') or {}).get('username') or '—'} · roles "
+                    f"{j.get('total_roles', 0)}"
+                )
+            if c.get("preview"):
+                lines.append("```json")
+                lines.append(c["preview"])
+                lines.append("```")
+            lines.append("")
+
+    idn = si.get("identity_summary") or {}
+    if idn:
+        h(3, "Identity Summary")
+        for label, key in (
+            ("Username", "username"),
+            ("Email", "email"),
+            ("Display Name", "display_name"),
+            ("User ID", "user_id"),
+            ("Tenant", "tenant"),
+            ("Organization", "organization"),
+            ("Locale", "locale"),
+        ):
+            if idn.get(key):
+                lines.append(f"- **{label}:** {idn[key]}")
+        lines.append("")
+
+    au = si.get("authentication_summary") or {}
+    if any(au.values()):
+        h(3, "Authentication Summary")
+        lines.append(
+            f"- **JWTs:** {au.get('jwts', 0)} · **Access Tokens:** {au.get('access_tokens', 0)} "
+            f"· **Refresh Tokens:** {au.get('refresh_tokens', 0)} · **Session Tokens:** "
+            f"{au.get('session_tokens', 0)} · **CSRF Tokens:** {au.get('csrf_tokens', 0)}\n"
+        )
+
+    cfg = si.get("configuration_summary") or {}
+    if any(cfg.values()):
+        h(3, "Configuration Summary")
+        for label, key in (
+            ("API Endpoints", "api_endpoints"),
+            ("Internal Services", "internal_services"),
+            ("Cloud Storage", "cloud_storage"),
+            ("Feature Flags", "feature_flags"),
+        ):
+            vals = cfg.get(key) or []
+            if vals:
+                lines.append(f"- **{label}:** {', '.join(str(v) for v in vals[:20])}")
+        lines.append("")
+
+    for note in si.get("notes") or []:
+        lines.append(f"- ⚠️ {note}")
+    points = si.get("developer_points") or []
+    if points:
+        lines.append("\n**Storage Discussion Points**")
+        lines.extend(f"{i}. {pt}" for i, pt in enumerate(points, start=1))
+    lines.append("")
 
 
 def _render_file_intelligence(report: dict, h, lines: list[str]) -> None:
@@ -2165,23 +2265,8 @@ def _render_recon_intelligence(report: dict, h, lines: list[str]) -> None:
     lines += [f"- `{m}`" for m in maps[:60]] or ["_No source maps referenced._"]
     lines.append("")
 
-    # Storage Intelligence.
-    storage = ri.get("storage", {})
-    items = storage.get("items", [])
-    h(2, f"Storage Intelligence ({len(items)})")
-    if items:
-        lines.append("| Storage | Role | Key | Classification | Value (masked) |")
-        lines.append("| --- | --- | --- | --- | --- |")
-        for s in items[:80]:
-            lines.append(
-                f"| {s['storage']} | {s.get('role') or '—'} | {s['key']} | "
-                f"{s['classification']} | `{s.get('value_masked') or '—'}` |"
-            )
-        for note in storage.get("notes", []):
-            lines.append(f"\n- ⚠️ {note}")
-    else:
-        lines.append("_No client-side storage captured._")
-    lines.append("")
+    # (Storage Intelligence is now the top-level "Browser Storage Intelligence" section,
+    # rendered near the front of the report — see _render_storage_intelligence.)
 
     # Business Function Discovery.
     funcs = ri.get("business_functions", [])
