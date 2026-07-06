@@ -252,6 +252,7 @@ def parse(role: str, source: str | Path | dict, *, show_pii: bool = False) -> di
     # reflects the current analysis (never a stale capture-time snapshot). Only the
     # masked summary is persisted — the raw token is not stored.
     intel_findings += _jwt_findings_from_har(role, source, show_pii=show_pii)
+    intel_findings += _cookie_jwt_findings_from_har(role, source, show_pii=show_pii)
 
     inventory = data.get("endpoint_inventory") or sorted({f"{c.method} {c.path}" for c in crawl})
     return {
@@ -295,6 +296,53 @@ def _jwt_findings_from_har(role: str, source, *, show_pii: bool = False) -> list
         out.append(
             IntelFinding(
                 kind="jwt_authz",
+                category="Authorization",
+                name=label,
+                value_masked=s.get("token_masked"),
+                source="exploration",
+                confidence="high",
+                severity="Informational",
+                extra=s,
+            )
+        )
+    return out
+
+
+def _cookie_jwt_findings_from_har(
+    role: str, source, *, show_pii: bool = False
+) -> list[IntelFinding]:
+    """Decode JWTs carried inside cookies from the sibling capture.har.
+
+    HAR exports usually strip the Cookie *header* but keep the structured
+    ``request.cookies`` array, so a JWT session cookie (e.g. ``KEYCLOAK_IDENTITY``,
+    ``GAAS_SESSION``) is still recoverable here even when the token never appears as a
+    request header. Re-decoded fresh on every import; only the masked summary is
+    persisted, never the raw token.
+    """
+    if isinstance(source, dict):
+        return []
+    from modules.intelligence.content_sources import sibling_har
+    from modules.intelligence.jwt_intelligence import harvest_cookie_jwts
+
+    har_path = sibling_har(str(source))
+    if not har_path:
+        return []
+    try:
+        from parsers.har_parser import parse_har
+
+        reqs = parse_har(har_path)
+    except (OSError, ValueError):
+        return []
+    cookie_rows = [{"cookies": r.cookies, "role": role} for r in reqs if r.cookies]
+    out: list[IntelFinding] = []
+    for s in harvest_cookie_jwts(cookie_rows, show_pii=show_pii):
+        label = (
+            f"{s.get('cookie_name') or 'cookie'}: "
+            f"{s.get('client') or 'jwt'}@{s.get('realm') or s.get('identity_provider') or '?'}"
+        )
+        out.append(
+            IntelFinding(
+                kind="cookie_jwt",
                 category="Authorization",
                 name=label,
                 value_masked=s.get("token_masked"),
