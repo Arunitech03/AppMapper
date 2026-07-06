@@ -154,6 +154,30 @@ def parse_har_bodies(source: str | Path | dict, *, max_body: int = 2_000_000):
             }
 
 
+def response_set_cookies(source: str | Path | dict) -> list[tuple[str, str]]:
+    """``(name, value)`` pairs from every response ``Set-Cookie`` header in a HAR.
+
+    Set-Cookie carries the freshly-issued cookie value (a JWT for token cookies) even
+    when the browser later withholds it from request ``Cookie`` headers — e.g. an
+    HttpOnly SSO-domain cookie like ``KEYCLOAK_IDENTITY`` that is only ever *set*, not
+    echoed back. The value is the substring up to the first attribute ``;``. Pure
+    function; malformed entries are skipped silently.
+    """
+    data = _load(source)
+    out: list[tuple[str, str]] = []
+    for entry in data.get("log", {}).get("entries", []):
+        for h in entry.get("response", {}).get("headers", []) or []:
+            if (h.get("name", "") or "").lower() != "set-cookie":
+                continue
+            # A HAR may fold multiple Set-Cookie headers into one newline-joined value.
+            for line in (h.get("value", "") or "").split("\n"):
+                nv = line.strip().split(";", 1)[0]
+                name, sep, val = nv.partition("=")
+                if sep and name.strip() and val.strip():
+                    out.append((name.strip(), val.strip()))
+    return out
+
+
 def _json_top_level_keys(text: str | None, mime: str | None) -> list[str]:
     """Top-level keys of a JSON response body (KEYS ONLY — values are discarded)."""
     if not text or not mime or "json" not in mime.lower():

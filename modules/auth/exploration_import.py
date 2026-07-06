@@ -328,12 +328,17 @@ def _cookie_jwt_findings_from_har(
     if not har_path:
         return []
     try:
-        from parsers.har_parser import parse_har
+        from parsers.har_parser import parse_har, response_set_cookies
 
         reqs = parse_har(har_path)
+        set_cookies = response_set_cookies(har_path)
     except (OSError, ValueError):
         return []
     cookie_rows = [{"cookies": r.cookies, "role": role} for r in reqs if r.cookies]
+    # Also decode freshly-set cookies (Set-Cookie) — catches HttpOnly SSO cookies that
+    # are set but never echoed back as a request header (e.g. KEYCLOAK_IDENTITY).
+    if set_cookies:
+        cookie_rows.append({"cookies": dict(set_cookies), "role": role})
     out: list[IntelFinding] = []
     for s in harvest_cookie_jwts(cookie_rows, show_pii=show_pii):
         label = (

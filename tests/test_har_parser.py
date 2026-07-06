@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from parsers.har_parser import endpoint_inventory, parse_har
+from parsers.har_parser import endpoint_inventory, parse_har, response_set_cookies
 
 HAR = {
     "log": {
@@ -77,3 +77,30 @@ def test_endpoint_inventory_dedupes():
     inv = endpoint_inventory(parse_har(HAR))
     assert "GET /api/items" in inv
     assert "POST /api/login" in inv
+
+
+def test_response_set_cookies_extracts_name_value():
+    har = {
+        "log": {
+            "entries": [
+                {
+                    "request": {"method": "GET", "url": "https://x.io/auth"},
+                    "response": {
+                        "status": 200,
+                        "content": {},
+                        "headers": [
+                            {
+                                "name": "Set-Cookie",
+                                "value": "KEYCLOAK_IDENTITY=eyJhbGc.payload.sig; "
+                                "Path=/; HttpOnly; Secure",
+                            },
+                            {"name": "Content-Type", "value": "text/html"},
+                        ],
+                    },
+                }
+            ]
+        }
+    }
+    pairs = dict(response_set_cookies(har))
+    assert pairs["KEYCLOAK_IDENTITY"] == "eyJhbGc.payload.sig"
+    assert response_set_cookies(HAR) == []  # no Set-Cookie in the base fixture
