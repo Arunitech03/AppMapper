@@ -30,6 +30,9 @@ def render_markdown(
     # Intelligence-first front matter — the "first two pages" (sections 1-6).
     _render_executive_intelligence(report, h, lines)
 
+    # File Upload & Download Intelligence (high-value attack surface, kept prominent).
+    _render_file_intelligence(report, h, lines)
+
     # Application Summary + Pentest Checklist (page 3-4, right after the summary).
     _render_summary_and_checklist(report, h, lines)
 
@@ -695,6 +698,120 @@ def _render_subdomain_intelligence(report: dict, h, lines: list[str]) -> None:
     points = si.get("developer_points") or []
     if points:
         lines.append("**Subdomain Discussion Points**")
+        lines.extend(f"{i}. {pt}" for i, pt in enumerate(points, start=1))
+        lines.append("")
+
+
+def _render_file_intelligence(report: dict, h, lines: list[str]) -> None:
+    """File Upload & Download Intelligence."""
+    fi = report.get("file_intelligence") or {}
+    uploads = fi.get("uploads") or []
+    downloads = fi.get("downloads") or []
+    if not (uploads or downloads or fi.get("storage") or fi.get("signed_urls")):
+        return
+
+    h(2, "File Upload & Download Intelligence")
+    s = fi.get("summary") or {}
+    lines.append(
+        f"- **Upload Endpoints:** {s.get('upload_endpoints', 0)} · **Download Endpoints:** "
+        f"{s.get('download_endpoints', 0)} · **Storage:** {s.get('storage_platform', '—')} · "
+        f"**Signed URLs:** {s.get('signed_urls', 0)} · **High-Risk Uploads:** "
+        f"{s.get('high_risk_uploads', 0)} · **Potential IDOR Downloads:** "
+        f"{s.get('potential_idor_downloads', 0)}\n"
+    )
+
+    if uploads:
+        h(3, f"Upload Inventory ({len(uploads)})")
+        lines.append(
+            "| Endpoint | Method | Auth | Roles | Multipart | Accepted Types | "
+            "Storage | Confidence |"
+        )
+        lines.append("| --- | --- | --- | --- | :---: | --- | --- | --- |")
+        for u in uploads:
+            roles = ", ".join(sorted(u.get("roles") or [])) or "—"
+            lines.append(
+                f"| {u['endpoint']} | {u['method']} | {u['auth']} | {roles} | "
+                f"{'Yes' if u['multipart'] else 'No'} | {u['accepted_types']} | "
+                f"{u['storage']} | {u['confidence']} |"
+            )
+        lines.append("")
+
+    if downloads:
+        h(3, f"Download Inventory ({len(downloads)})")
+        lines.append("| Endpoint | Auth | Content-Type | Download Type | Signed URL | Confidence |")
+        lines.append("| --- | --- | --- | --- | --- | --- |")
+        for d in downloads:
+            lines.append(
+                f"| {d['endpoint']} | {d['auth']} | {d['content_type']} | "
+                f"{d['download_type']} | {d['signed_url']} | {d['confidence']} |"
+            )
+        lines.append("")
+
+    storage = fi.get("storage") or []
+    if storage:
+        h(3, f"File Storage ({len(storage)})")
+        lines.append("| Platform | Host | Service | Evidence | Confidence |")
+        lines.append("| --- | --- | --- | --- | --- |")
+        for st in storage:
+            lines.append(
+                f"| {st['platform']} | {st['host']} | {st['service']} | "
+                f"`{st['evidence']}` | {st['confidence']} |"
+            )
+        lines.append("")
+
+    signed = fi.get("signed_urls") or []
+    if signed:
+        h(3, f"Signed / Temporary URLs ({len(signed)})")
+        lines.append("| Platform | Expiration | URL |")
+        lines.append("| --- | --- | --- |")
+        for sg in signed[:60]:
+            lines.append(f"| {sg['platform']} | {sg['expiration']} | `{sg['url']}` |")
+        lines.append("")
+
+    accepted = fi.get("accepted_types") or {}
+    if accepted:
+        h(3, "Accepted File Types")
+        for cat, exts in accepted.items():
+            lines.append(f"- **{cat}:** {', '.join(exts)}")
+        lines.append("")
+
+    for title, comps in (
+        ("Upload Components", fi.get("upload_components") or {}),
+        ("Download Components", fi.get("download_components") or {}),
+    ):
+        if comps:
+            h(3, title)
+            for label, evidence in comps.items():
+                lines.append(f"- **{label}:** {', '.join(evidence)}")
+            lines.append("")
+
+    val = fi.get("validation") or {}
+    if val:
+        h(3, "Upload Validation")
+        lines.append(f"- **Client-side:** {', '.join(val.get('client_side', []))}")
+        lines.append(f"- **Server-side:** {val.get('server_side', '—')}")
+        lines.append(
+            f"- **Magic-byte:** {val.get('magic_byte', '—')} · **Virus scan:** "
+            f"{val.get('virus_scan', '—')}\n"
+        )
+
+    corr = fi.get("correlation") or []
+    if corr:
+        h(3, "Correlation")
+        lines.append("```")
+        lines.extend(corr)
+        lines.append("```\n")
+
+    pentest = fi.get("pentest_opportunities") or {}
+    if pentest:
+        h(3, "Pentest Opportunities")
+        for area, tests in pentest.items():
+            lines.append(f"- **{area}:** {', '.join(tests)}")
+        lines.append("")
+
+    points = fi.get("developer_points") or []
+    if points:
+        lines.append("**File Handling Discussion Points**")
         lines.extend(f"{i}. {pt}" for i, pt in enumerate(points, start=1))
         lines.append("")
 

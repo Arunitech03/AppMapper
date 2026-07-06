@@ -234,6 +234,40 @@ def test_access_matrix_promoted_to_insight():
         assert _insight_rank(title) is not None, title
 
 
+def test_file_intelligence_section_and_dashboard():
+    data = dict(
+        _data(),
+        crawl_endpoints=[
+            {
+                "role": "anonymous",
+                "url": "https://app.example.com/api/upload",
+                "path": "/api/upload",
+                "method": "POST",
+                "source": "upload",
+            },
+            {
+                "role": "test1",
+                "url": "https://app.example.com/api/documents/9/download",
+                "path": "/api/documents/9/download",
+                "method": "GET",
+                "source": "download",
+                "title": "x.pdf",
+                "content_type": "application/pdf",
+            },
+        ],
+    )
+    html = render_html(data)
+    # Top-level expanded section, placed before Authentication Intelligence.
+    assert '<section id="s-file-upload-download-intelligence">' in html
+    assert html.index("s-file-upload-download-intelligence") < html.index(
+        "s-authentication-intelligence"
+    )
+    # Dashboard KPI cards for file handling.
+    assert "Upload Endpoints" in html and "Download Endpoints" in html
+    # Anonymous upload surfaces as a High critical finding.
+    assert "Anonymous" in html and '<div class="panel sev-high">' in html
+
+
 def test_critical_findings_are_alert_panels():
     html = render_html(_data())
     assert '<div class="panel sev-high">' in html  # admin-roles finding -> High panel

@@ -22,6 +22,7 @@ from modules.intelligence.browser_intelligence import build_browser_intelligence
 from modules.intelligence.dns_intelligence import build_dns_intelligence
 from modules.intelligence.domain_classifier import build_domain_intel
 from modules.intelligence.executive_summary import build_executive_intelligence
+from modules.intelligence.file_intelligence import build_file_intelligence
 from modules.intelligence.javascript_intelligence import build_javascript_intelligence
 from modules.intelligence.jwt_intelligence import build_jwt_intelligence
 from modules.intelligence.pentest_matrix import build_pentest_matrix
@@ -236,6 +237,12 @@ def build_report(
     report["token_inventory"] = build_token_inventory(report)
     report["subdomain_intelligence"] = build_subdomain_intelligence(report, data)
     report["dns_intelligence"] = build_dns_intelligence(report, data)
+    report["file_intelligence"] = build_file_intelligence(report, data)
+    # Surface file-handling high-value findings in the Critical Findings pipeline.
+    fi_points = (report["file_intelligence"] or {}).get("high_value_findings") or []
+    if fi_points:
+        ei = report.setdefault("executive_intelligence", {})
+        ei.setdefault("developer_discussion_points", []).extend(fi_points)
     report["pentest_matrix"] = build_pentest_matrix(report)
     return report
 
