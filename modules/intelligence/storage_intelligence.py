@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import re
 
+from modules.intelligence.confidence import HIGH, LOW, MEDIUM
+
 # key-name pattern -> (classification, finding note or None)
 _CLASSIFIERS: list[tuple] = [
     (
@@ -130,6 +132,27 @@ _IDENTITY_FIELDS = {
     "organization": ("org", "organization", "company", "customer"),
     "locale": ("locale", "language", "lang"),
 }
+# Authorization field aliases (values are the authz model — not secret, shown).
+_AUTHZ_FIELDS = {
+    "roles": ("roles", "role", "authorities", "realm_access", "resource_access"),
+    "groups": ("groups", "group", "memberof"),
+    "scopes": ("scope", "scopes", "scp"),
+    "permissions": ("permissions", "permission", "privileges", "grants"),
+}
+# Application-state "current X" selection fields.
+_APP_STATE_FIELDS = {
+    "current_device": ("device", "devicenumber", "deviceid", "meterid", "serial", "endpoint_id"),
+    "current_meter": ("meter", "meternumber", "meterid"),
+    "current_site": ("site", "siteid", "location", "region"),
+    "current_tenant": ("tenant", "tenantid", "realm"),
+    "current_customer": ("customer", "customerid", "account"),
+    "current_project": ("project", "projectid"),
+    "current_workspace": ("workspace", "workspaceid"),
+    "current_organization": ("org", "organization", "company"),
+    "current_alarm": ("alarm", "alarmid", "alert"),
+    "current_dashboard": ("dashboard", "dashboardid"),
+    "current_asset": ("asset", "assetid", "equipment"),
+}
 
 
 def _masked(value: str) -> bool:
@@ -204,140 +227,360 @@ def _collect_identity(fields: dict, out: dict) -> None:
                 break
 
 
-def build_storage_intelligence(report: dict, data: dict | None = None) -> dict:
-    """Browser Storage Intelligence: recursively decode + classify every storage artifact.
+def _flatten(obj, out: dict, depth: int = 0) -> None:
+    """Flatten a decoded JSON object into ``{lower_key: value}`` (nested, depth-capped)."""
+    if depth > 4 or not isinstance(obj, dict):
+        return
+    for k, v in obj.items():
+        lk = str(k).lower()
+        if isinstance(v, dict):
+            _flatten(v, out, depth + 1)
+        else:
+            out.setdefault(lk, v)
 
-    Non-secret encoded values (base64/JSON/URL/gzip/hex/unicode) are decoded and
-    pretty-printed with secret/PII leaves masked; token/secret values (already masked at
-    capture) are classified by name; JWTs correlate with the decoded cookie/bearer
-    findings. Pure/offline; never emits a raw secret. Empty-safe.
+
+def _extract_authorization(flat: dict, jwt: dict | None) -> dict:
+    authz: dict[str, list] = {}
+    for canonical, aliases in _AUTHZ_FIELDS.items():
+        vals: list = []
+        for a in aliases:
+            v = flat.get(a)
+            if isinstance(v, list):
+                vals += [str(x) for x in v]
+            elif isinstance(v, str) and v:
+                vals += v.split() if canonical == "scopes" else [v]
+        if vals:
+            authz[canonical] = sorted(set(vals))[:40]
+    if jwt:
+        roles = (jwt.get("roles") or []) + (jwt.get("administrative_roles") or [])
+        if roles:
+            authz["roles"] = sorted(set(authz.get("roles", []) + roles))[:40]
+        if jwt.get("scopes"):
+            authz["scopes"] = sorted(set(authz.get("scopes", []) + jwt["scopes"]))[:40]
+    return authz
+
+
+def _extract_app_state(key: str, flat: dict) -> dict:
+    """Current-selection state from decoded object field names (exact alias match)."""
+    state: dict[str, str] = {}
+    for canonical, aliases in _APP_STATE_FIELDS.items():
+        for a in aliases:
+            v = flat.get(a)
+            if v not in (None, "", [], {}) and isinstance(v, (str, int, float)):
+                state[canonical] = str(v)[:80]
+                break
+    return state
+
+
+def analyze_storage_value(kind: str, key: str, value, *, role: str | None = None) -> dict:
+    """Analyze ONE storage value into a mask-safe intelligence record (B6.1 core unit).
+
+    Pipeline: type-detect -> recursive decode -> parse -> extract identity/authz/config/
+    app-state -> classify -> mask. Reused at capture, import and report time. ``value`` may
+    be raw (full decode) or already-masked (name-classification fallback). Never returns a
+    raw secret — leaves are masked by the decoder / mask helpers.
     """
+    from modules.auth.masking import mask_secret
     from modules.intelligence.value_decoder import decode_value
 
+    text = "" if value is None else str(value)
+    masked_in = _masked(text)
+    decode = {} if masked_in else decode_value(text)
+
+    flat: dict = {}
+    _flatten(decode.get("fields") or {}, flat)
+    jwt = decode.get("jwt")
+    if jwt:
+        _flatten(jwt.get("user") or {}, flat)
+
+    identity: dict = {}
+    _collect_identity(flat, identity)
+    if jwt:
+        identity.setdefault("tenant", jwt.get("realm"))
+    identity = {k: v for k, v in identity.items() if v}
+
+    authorization = _extract_authorization(flat, jwt)
+    app_state = _extract_app_state(key, flat)
+    category, subtype, severity = _classify_storage(key, decode, masked_in)
+
+    # "Contains" — decoded field names present (+ jwt-derived), for the report checklist.
+    contains = sorted((decode.get("fields") or {}).keys())
+    if jwt:
+        contains = sorted(set(contains) | {"issuer", "realm", "client", "roles", "username"})
+
+    original_type = "Masked" if masked_in else (decode.get("original_type") or "Text")
+    decoded_type = "Masked" if masked_in else (decode.get("decoded_type") or original_type)
+    chain = " → ".join(x["type"] for x in decode.get("layers") or []) or original_type
+    decoded_ok = bool(decode.get("layers") or decode.get("fields") or jwt)
+    confidence = HIGH if decoded_ok else (MEDIUM if not masked_in else LOW)
+
+    preview = ""
+    for layer in decode.get("layers") or []:
+        if layer.get("preview"):
+            preview = layer["preview"]
+
+    return {
+        "kind": kind,
+        "storage": _KIND_LABEL.get(kind, kind),
+        "key": key,
+        "role": role,
+        "detected_type": original_type,
+        "decoded_type": decoded_type,
+        "chain": chain,
+        "category": category,
+        "subtype": subtype,
+        "classification": f"{category} — {subtype}",
+        "contains": contains,
+        "identity": identity,
+        "authorization": authorization,
+        "app_state": app_state,
+        "config_urls": [
+            v for v in flat.values() if isinstance(v, str) and v.lower().startswith("http")
+        ]
+        + ([text] if (not masked_in and text.lower().startswith("http")) else []),
+        "jwt": jwt,
+        "preview": preview,
+        "fields": decode.get("fields") or {},
+        "value_masked": text if masked_in else mask_secret(text),
+        "confidence": confidence,
+        "risk": severity,
+    }
+
+
+# Where correlated facts might already appear elsewhere in the report.
+_CORRELATION_SOURCES = (
+    "JWT Intelligence",
+    "Cookie JWT Intelligence",
+    "Runtime Configuration",
+    "Authentication Intelligence",
+    "DNS Intelligence",
+    "Hidden APIs",
+)
+
+
+def _report_identity_pool(report: dict) -> dict:
+    """Collect identity/host facts already known elsewhere, for cross-correlation."""
+    pool = {
+        "usernames": set(),
+        "tenants": set(),
+        "clients": set(),
+        "hosts": set(),
+        "services": set(),
+    }
+    jp = (report.get("jwt_intelligence") or {}).get("primary") or {}
+    if jp:
+        pool["usernames"].add(str((jp.get("user") or {}).get("username") or "").lower())
+        pool["tenants"].add(str(jp.get("realm") or "").lower())
+        pool["clients"].add(str(jp.get("client") or "").lower())
+    ident = (report.get("cookie_jwt_intelligence") or {}).get("identity_summary") or {}
+    for u in ident.get("users", []) or []:
+        pool["usernames"].add(str(u).lower())
+    for r in ident.get("realms", []) or []:
+        pool["tenants"].add(str(r).lower())
+    es = (report.get("auth_intelligence") or {}).get("exec_summary") or {}
+    pool["usernames"].add(str(es.get("user") or "").lower())
+    pool["tenants"].add(str(es.get("realm") or "").lower())
+    ji = report.get("javascript_intelligence") or {}
+    for s in ji.get("service_inventory", []) or []:
+        if s.get("host"):
+            pool["hosts"].add(str(s["host"]).lower())
+        if s.get("service"):
+            pool["services"].add(str(s["service"]).lower())
+    for h in (report.get("dns_intelligence") or {}).get("host_inventory", []) or []:
+        if h.get("host"):
+            pool["hosts"].add(str(h["host"]).lower())
+    return {k: {v for v in vs if v} for k, vs in pool.items()}
+
+
+def _correlate(record: dict, pool: dict) -> list[str]:
+    """Link a storage record's facts to matching facts elsewhere (no duplication)."""
+    from urllib.parse import urlparse
+
+    out: list[str] = []
+    ident = record.get("identity") or {}
+    u = str(ident.get("username") or "").lower()
+    if u and u in pool["usernames"]:
+        out.append(f"username '{ident['username']}' also seen in JWT / Authentication Intelligence")
+    t = str(ident.get("tenant") or "").lower()
+    if t and t in pool["tenants"]:
+        out.append(f"tenant/realm '{ident['tenant']}' matches JWT / Runtime Configuration")
+    for url in record.get("config_urls") or []:
+        host = urlparse(url).hostname or ""
+        if host and host.lower() in pool["hosts"]:
+            out.append(f"host '{host}' is a known service (DNS / Service Inventory)")
+            break
+    return out
+
+
+def build_storage_intelligence(report: dict, data: dict | None = None) -> dict:
+    """Browser Storage Intelligence engine (B6.1).
+
+    Consumes ``storage_intel`` findings (decoded from RAW values at import/capture, before
+    masking) as the primary source; falls back to analyzing any still-raw ``auth_artifacts``
+    and name-classifying masked ones. Correlates identity/tenant/host facts with the rest of
+    the report. Pure/offline; masking already applied to every record leaf. Empty-safe.
+    """
     data = data or {}
+    findings = data.get("intel_findings") or report.get("intel_findings") or []
+    records: list[dict] = [
+        f["extra"] for f in findings if (f.get("kind") == "storage_intel") and f.get("extra")
+    ]
+    seen = {(r.get("kind"), r.get("key")) for r in records}
+
+    # Fallback: analyze any stored storage artifacts not already covered by a finding.
     artifacts = data.get("auth_artifacts") or report.get("auth_artifacts") or []
-    storage = [a for a in artifacts if (a.get("kind") or "").lower() in _STORAGE_KINDS]
+    for a in artifacts:
+        kind = (a.get("kind") or "").lower()
+        if kind not in _STORAGE_KINDS:
+            continue
+        if (kind, a.get("name")) in seen:
+            continue
+        records.append(
+            analyze_storage_value(
+                kind, a.get("name", ""), a.get("value_masked"), role=a.get("role")
+            )
+        )
+
+    cji = report.get("cookie_jwt_intelligence") or {}
+    pool = _report_identity_pool(report)
 
     inventory: list[dict] = []
     decoded_cards: list[dict] = []
+    identity: dict = {}
+    app_state: dict = {}
     high_value: list[dict] = []
     notes: dict[str, None] = {}
-    identity: dict = {}
+    all_correlations: dict[str, None] = {}
+    config_urls: list[str] = []
     cat_counts: dict[str, int] = {}
     kind_counts = {"cookie": 0, "local_storage": 0, "session_storage": 0}
-    n_decoded = n_jwt = n_json = n_config = n_secret = n_identity = n_authz = 0
-    config_urls: list[str] = []
+    n_decoded = n_jwt = n_json = n_secret = n_identity = n_authz = n_config = n_state = 0
 
-    # JWT summaries already decoded from cookies/bearer (for correlation).
-    cji = report.get("cookie_jwt_intelligence") or {}
+    # Cookie JWTs decoded in B5 — used to enrich cookie storage rows (the raw cookie value
+    # is masked in artifacts, but its JWT was decoded from the HAR / capture).
+    cookie_cards = {str(c.get("cookie") or "").lower(): c for c in (cji.get("cookie_cards") or [])}
 
-    for a in storage:
-        kind = (a.get("kind") or "").lower()
-        name = a.get("name", "")
-        value = str(a.get("value_masked") or "")
-        masked = _masked(value)
+    for r in records:
+        kind = r.get("kind", "")
         kind_counts[kind] = kind_counts.get(kind, 0) + 1
-
-        decode = {} if masked else decode_value(value)
-        category, subtype, severity = _classify_storage(name, decode, masked)
-        cat_counts[category] = cat_counts.get(category, 0) + 1
-
-        original_type = "Masked" if masked else (decode.get("original_type") or "Text")
-        decoded_type = "Masked" if masked else (decode.get("decoded_type") or original_type)
-        if not masked and decode.get("layers"):
+        # Enrich a masked cookie with its decoded cookie-JWT identity (correlate, don't dup).
+        card = cookie_cards.get(str(r.get("key") or "").lower()) if kind == "cookie" else None
+        if card:
+            ident = card.get("identity") or {}
+            r = dict(r)
+            r["detected_type"] = "JWT"
+            r["decoded_type"] = "JWT"
+            r["category"], r["subtype"] = "Authentication", "Cookie JWT"
+            r["classification"] = "Authentication — Cookie JWT"
+            r["contains"] = ["username", "issuer", "realm", "client", "session_id", "roles"]
+            r["identity"] = {
+                k: v
+                for k, v in {
+                    "username": ident.get("username"),
+                    "tenant": ident.get("realm"),
+                }.items()
+                if v
+            }
+            r.setdefault("_correlate_note", "decoded — see Cookie JWT Intelligence")
+        cat = r.get("category", "Other")
+        cat_counts[cat] = cat_counts.get(cat, 0) + 1
+        decoded_type = r.get("decoded_type", "Text")
+        if decoded_type not in ("Masked", "Text") or r.get("jwt"):
             n_decoded += 1
-        if decode.get("jwt"):
+        if r.get("jwt"):
             n_jwt += 1
         if decoded_type == "JSON":
             n_json += 1
-        if category == "Configuration":
-            n_config += 1
-            if not masked and value.lower().startswith("http"):
-                config_urls.append(value)
-        if category == "Secrets":
-            n_secret += 1
-        if category == "Identity":
+        n_secret += cat == "Secrets"
+        n_authz += cat == "Authorization"
+        if cat == "Identity":
             n_identity += 1
-            _collect_identity(decode.get("fields") or {}, identity)
-        if category == "Authorization":
-            n_authz += 1
-        if decode.get("jwt"):
-            _collect_identity((decode["jwt"].get("user") or {}), identity)
+        for k, v in (r.get("identity") or {}).items():
+            identity.setdefault(k, v)
+        if r.get("app_state"):
+            n_state += 1
+            for k, v in r["app_state"].items():
+                app_state.setdefault(k, v)
+        config_urls += r.get("config_urls") or []
+        if cat == "Configuration":
+            n_config += 1
+
+        corr = _correlate(r, pool)
+        if r.get("_correlate_note"):
+            corr = corr + [f"cookie '{r.get('key')}' {r['_correlate_note']}"]
+        for c in corr:
+            all_correlations.setdefault(c, None)
 
         inventory.append(
             {
-                "storage": _KIND_LABEL.get(kind, kind),
-                "key": name,
-                "original_type": original_type,
+                "storage": r.get("storage", kind),
+                "key": r.get("key", ""),
+                "detected_type": r.get("detected_type", "Text"),
                 "decoded_type": decoded_type,
-                "classification": f"{category} — {subtype}",
-                "risk": severity,
+                "classification": r.get("classification", "Other — Value"),
+                "contains": r.get("contains") or [],
+                "confidence": r.get("confidence", LOW),
+                "risk": r.get("risk", "Info"),
+                "correlations": corr,
             }
         )
-
-        # Rich card for anything meaningfully decoded (JSON/JWT/URL/etc.).
-        if not masked and (decode.get("fields") or decode.get("jwt") or decode.get("layers")):
-            preview = ""
-            for layer in decode.get("layers") or []:
-                if layer.get("preview"):
-                    preview = layer["preview"]
+        if r.get("fields") or r.get("jwt") or r.get("preview"):
             decoded_cards.append(
                 {
-                    "storage": _KIND_LABEL.get(kind, kind),
-                    "key": name,
-                    "classification": f"{category} — {subtype}",
-                    "chain": " → ".join(x["type"] for x in decode.get("layers") or [])
-                    or original_type,
-                    "fields": decode.get("fields") or {},
-                    "jwt": decode.get("jwt"),
-                    "preview": preview,
-                    "risk": severity,
+                    "storage": r.get("storage", kind),
+                    "key": r.get("key", ""),
+                    "classification": r.get("classification", ""),
+                    "chain": r.get("chain", ""),
+                    "contains": r.get("contains") or [],
+                    "fields": r.get("fields") or {},
+                    "jwt": r.get("jwt"),
+                    "preview": r.get("preview", ""),
+                    "risk": r.get("risk", "Info"),
                 }
             )
 
-        # Findings.
-        loc = f"{_KIND_LABEL.get(kind, kind)}: {name}"
-        if category == "Secrets":
+        loc = f"{r.get('storage', kind)}: {r.get('key', '')}"
+        if cat == "Secrets":
             high_value.append(
                 {
                     "severity": "High",
-                    "title": f"Secret material in browser storage: {name}",
+                    "title": f"Secret material in browser storage: {r.get('key')}",
                     "detail": f"{loc} holds a credential/secret client-side.",
                 }
             )
-        elif category == "Authorization":
+        elif cat == "Authorization":
             high_value.append(
                 {
                     "severity": "High",
-                    "title": f"Roles/permissions stored client-side: {name}",
+                    "title": f"Roles/permissions stored client-side: {r.get('key')}",
                     "detail": f"{loc} exposes the authorization model to the browser; "
-                    f"client-side role state is tamper-prone and must be enforced server-side.",
+                    f"enforce authorization server-side.",
                 }
             )
             notes.setdefault(f"Role information stored client-side ({loc})", None)
-        elif category == "Authentication" and kind == "local_storage" and severity == "High":
+        elif cat == "Authentication" and kind == "local_storage" and r.get("risk") == "High":
             high_value.append(
                 {
                     "severity": "Medium",
-                    "title": f"{subtype} in localStorage: {name}",
+                    "title": f"{r.get('subtype')} in localStorage: {r.get('key')}",
                     "detail": f"{loc} keeps a bearer credential in JS-readable storage "
-                    f"(XSS-exfiltratable). Prefer HttpOnly cookies.",
+                    f"(XSS-exfiltratable).",
                 }
             )
-        elif subtype == "Tenant / Organization":
+        elif r.get("subtype") == "Tenant / Organization":
             high_value.append(
                 {
                     "severity": "Medium",
-                    "title": f"Tenant/organization identifier exposed: {name}",
+                    "title": f"Tenant/organization identifier exposed: {r.get('key')}",
                     "detail": f"{loc} exposes multi-tenant scoping usable for horizontal "
                     f"access testing.",
                 }
             )
-        elif category == "Configuration" and subtype == "API / Config URL":
+        elif cat == "Configuration" and r.get("subtype") == "API / Config URL":
             notes.setdefault(f"Internal API/config URL in storage ({loc})", None)
 
-    # Configuration summary (URLs / cloud / flags surfaced from decoded values).
     config_summary = _configuration_summary(decoded_cards, config_urls)
+    identity = {k: v for k, v in identity.items() if v}
 
     auth_summary = {
         "authentication_cookies": (cji.get("summary") or {}).get("jwt_cookies", 0),
@@ -347,8 +590,30 @@ def build_storage_intelligence(report: dict, data: dict | None = None) -> dict:
         "session_tokens": sum(1 for i in inventory if "Session Identifier" in i["classification"]),
         "csrf_tokens": sum(1 for i in inventory if "CSRF Token" in i["classification"]),
     }
+    authorization_summary = {
+        "roles": sorted(
+            {x for r in records for x in (r.get("authorization") or {}).get("roles", [])}
+        ),
+        "groups": sorted(
+            {x for r in records for x in (r.get("authorization") or {}).get("groups", [])}
+        ),
+        "scopes": sorted(
+            {x for r in records for x in (r.get("authorization") or {}).get("scopes", [])}
+        ),
+        "permissions": sorted(
+            {x for r in records for x in (r.get("authorization") or {}).get("permissions", [])}
+        ),
+    }
 
     developer_points = _storage_developer_points(cat_counts, kind_counts, identity)
+    if app_state:
+        developer_points.append(
+            "Application state (current device/site/tenant/selection) is persisted client-side."
+        )
+    if all_correlations:
+        developer_points.append(
+            "Storage artifacts correlate with identity/config seen elsewhere — findings are linked."
+        )
 
     inventory.sort(key=lambda x: (x["storage"], x["classification"], x["key"]))
     high_risk = sum(1 for f in high_value if f["severity"] == "High")
@@ -356,9 +621,12 @@ def build_storage_intelligence(report: dict, data: dict | None = None) -> dict:
     return {
         "inventory": inventory,
         "decoded_cards": decoded_cards,
-        "identity_summary": {k: v for k, v in identity.items() if v},
+        "identity_summary": identity,
         "authentication_summary": auth_summary,
+        "authorization_summary": {k: v for k, v in authorization_summary.items() if v},
         "configuration_summary": config_summary,
+        "application_state": app_state,
+        "correlations": list(all_correlations),
         "high_value_findings": high_value,
         "developer_points": developer_points,
         "notes": list(notes),
@@ -373,7 +641,9 @@ def build_storage_intelligence(report: dict, data: dict | None = None) -> dict:
             "config_objects": n_config,
             "secrets": n_secret,
             "identity_objects": n_identity,
+            "app_state_objects": n_state,
             "client_side_roles": n_authz,
+            "correlated": len(all_correlations),
             "high_risk": high_risk,
         },
     }

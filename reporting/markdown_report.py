@@ -814,16 +814,21 @@ def _render_storage_intelligence(report: dict, h, lines: list[str]) -> None:
         f"{s.get('session_storage_keys', 0)} · **Decoded:** {s.get('decoded_values', 0)} · "
         f"**JWTs:** {s.get('jwts', 0)} · **JSON:** {s.get('json_objects', 0)} · "
         f"**Secrets:** {s.get('secrets', 0)} · **Client-Side Roles:** "
-        f"{s.get('client_side_roles', 0)} · **High-Risk:** {s.get('high_risk', 0)}\n"
+        f"{s.get('client_side_roles', 0)} · **App State:** {s.get('app_state_objects', 0)} · "
+        f"**Correlated:** {s.get('correlated', 0)} · **High-Risk:** {s.get('high_risk', 0)}\n"
     )
 
-    h(3, f"Decoded Storage Inventory ({len(inv)})")
-    lines.append("| Storage | Key | Original Type | Decoded Type | Classification | Risk |")
-    lines.append("| --- | --- | --- | --- | --- | --- |")
+    h(3, f"Browser Storage Intelligence ({len(inv)})")
+    lines.append(
+        "| Storage | Key | Detected Type | Decoded Type | Classification | Contains | "
+        "Confidence | Risk |"
+    )
+    lines.append("| --- | --- | --- | --- | --- | --- | :---: | --- |")
     for i in inv:
+        contains = ", ".join(f"✓ {c}" for c in (i.get("contains") or [])[:8]) or "—"
         lines.append(
-            f"| {i['storage']} | `{i['key']}` | {i['original_type']} | {i['decoded_type']} | "
-            f"{i['classification']} | {i['risk']} |"
+            f"| {i['storage']} | `{i['key']}` | {i['detected_type']} | {i['decoded_type']} | "
+            f"{i['classification']} | {contains} | {i.get('confidence', '—')} | {i['risk']} |"
         )
     lines.append("")
 
@@ -834,6 +839,8 @@ def _render_storage_intelligence(report: dict, h, lines: list[str]) -> None:
             lines.append(
                 f"**{c['storage']} · `{c['key']}`** — {c['classification']} ({c['chain']})"
             )
+            if c.get("contains"):
+                lines.append(f"- Contains: {', '.join('✓ ' + x for x in c['contains'][:12])}")
             if c.get("jwt"):
                 j = c["jwt"]
                 lines.append(
@@ -873,6 +880,27 @@ def _render_storage_intelligence(report: dict, h, lines: list[str]) -> None:
             f"{au.get('session_tokens', 0)} · **CSRF Tokens:** {au.get('csrf_tokens', 0)}\n"
         )
 
+    authz = si.get("authorization_summary") or {}
+    if any(authz.values()):
+        h(3, "Authorization Summary")
+        for label, key in (
+            ("Roles", "roles"),
+            ("Groups", "groups"),
+            ("Scopes", "scopes"),
+            ("Permissions", "permissions"),
+        ):
+            vals = authz.get(key) or []
+            if vals:
+                lines.append(f"- **{label}:** {', '.join(str(v) for v in vals[:20])}")
+        lines.append("")
+
+    app = si.get("application_state") or {}
+    if app:
+        h(3, "Application State")
+        for k, v in app.items():
+            lines.append(f"- **{k.replace('_', ' ').title()}:** {v}")
+        lines.append("")
+
     cfg = si.get("configuration_summary") or {}
     if any(cfg.values()):
         h(3, "Configuration Summary")
@@ -885,6 +913,12 @@ def _render_storage_intelligence(report: dict, h, lines: list[str]) -> None:
             vals = cfg.get(key) or []
             if vals:
                 lines.append(f"- **{label}:** {', '.join(str(v) for v in vals[:20])}")
+        lines.append("")
+
+    corr = si.get("correlations") or []
+    if corr:
+        h(3, "Cross-Correlation")
+        lines.extend(f"- 🔗 {c}" for c in corr)
         lines.append("")
 
     for note in si.get("notes") or []:

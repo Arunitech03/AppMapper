@@ -245,6 +245,10 @@ def parse(role: str, source: str | Path | dict, *, show_pii: bool = False) -> di
     # Browser intelligence (Sprint B) -> generic intel findings + storage artifacts.
     bi = data.get("browser_intelligence") or {}
     intel_findings = browser_intel_to_findings(role, bi)
+    # Analyze RAW storage values BEFORE they are masked into artifacts (B6.1). The bundle
+    # keeps non-secret localStorage/sessionStorage values raw, so decoding here yields real
+    # intelligence; only the mask-safe record is persisted.
+    intel_findings += _storage_intel_findings(role, bi)
     artifacts += _storage_artifacts(role, bi)
 
     # JWT authorization intelligence: decode the access token FRESH from the sibling
@@ -374,6 +378,43 @@ def _safe_mask(name, value):
     if "…" in text or "***" in text:  # already masked
         return text
     return _mask_value(name or "", text)
+
+
+def _storage_intel_findings(role: str, bi: dict) -> list[IntelFinding]:
+    """Decode + classify RAW localStorage/sessionStorage into storage_intel findings (B6.1).
+
+    Runs the mask-safe analyzer over the raw bundle values before ``_storage_artifacts``
+    masks them. Prefers a capture-time ``bi["storage_analysis"]`` (fully-raw, from the live
+    explorer) when present; otherwise analyzes the raw ``bi`` storage maps directly. Only the
+    mask-safe record is persisted — raw values never leave this function.
+    """
+    from modules.intelligence.storage_intelligence import analyze_storage_value
+
+    records: list[dict] = list(bi.get("storage_analysis") or [])
+    if not records:
+        for kind, store in (
+            ("local_storage", bi.get("local_storage")),
+            ("session_storage", bi.get("session_storage")),
+        ):
+            for name, value in (store or {}).items():
+                records.append(analyze_storage_value(kind, name, value, role=role))
+
+    out: list[IntelFinding] = []
+    for r in records:
+        out.append(
+            IntelFinding(
+                kind="storage_intel",
+                category="Browser Storage",
+                name=f"{r.get('storage', r.get('kind'))}: {r.get('key')}",
+                value_masked=r.get("value_masked"),
+                location=r.get("storage"),
+                source="exploration",
+                confidence=r.get("confidence", "low"),
+                severity="Informational",
+                extra=r,
+            )
+        )
+    return out
 
 
 def _storage_artifacts(role: str, bi: dict) -> list[AuthArtifact]:

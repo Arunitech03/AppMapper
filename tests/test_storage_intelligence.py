@@ -1,115 +1,142 @@
-"""Tests for Browser Storage Intelligence (Sprint B6)."""
+"""Tests for Browser Storage Deep Intelligence (Sprint B6 / B6.1)."""
 
 from __future__ import annotations
 
 import base64
 import json
 
-from modules.intelligence.storage_intelligence import build_storage_intelligence
+from modules.intelligence.storage_intelligence import (
+    analyze_storage_value,
+    build_storage_intelligence,
+)
 
 
 def _b64(o) -> str:
     return base64.b64encode(json.dumps(o).encode()).decode()
 
 
+def _storage_finding(kind, key, value, role="user"):
+    """A storage_intel intel-finding as the import layer would persist it."""
+    rec = analyze_storage_value(kind, key, value, role=role)
+    return {"kind": "storage_intel", "name": f"{rec['storage']}: {key}", "extra": rec}
+
+
+# --- the shared analyzer (analyze-before-mask unit) -------------------------
+
+
+def test_analyze_base64_json_identity():
+    rec = analyze_storage_value(
+        "local_storage",
+        "currentUser",
+        _b64({"username": "admin", "email": "jane.doe@corp.com", "tenant": "acme"}),
+    )
+    assert rec["detected_type"] == "Base64" and rec["decoded_type"] == "JSON"
+    assert rec["category"] == "Identity"
+    assert set(rec["contains"]) >= {"username", "email", "tenant"}
+    assert rec["identity"]["username"] == "admin" and rec["identity"]["tenant"] == "acme"
+    # email masked in the extracted identity
+    assert "@corp.com" in rec["identity"]["email"] and "jane.doe" not in rec["identity"]["email"]
+
+
+def test_analyze_jwt_value():
+    from tests.test_value_decoder import _jwt
+
+    tok = _jwt(
+        {
+            "iss": "https://auth/realms/demo",
+            "preferred_username": "bob",
+            "realm_access": {"roles": ["ADMIN"]},
+        }
+    )
+    rec = analyze_storage_value("cookie", "KEYCLOAK_IDENTITY", tok)
+    assert rec["decoded_type"] == "JWT" and rec["category"] == "Authentication"
+    assert "issuer" in rec["contains"] and "username" in rec["contains"]
+    assert tok not in json.dumps(rec)  # raw token never present
+
+
+def test_analyze_authorization_object():
+    rec = analyze_storage_value("local_storage", "acl", _b64({"roles": ["Admin", "Auditor"]}))
+    assert rec["category"] == "Authorization"
+    assert rec["authorization"]["roles"] == ["Admin", "Auditor"]
+
+
+def test_analyze_app_state():
+    rec = analyze_storage_value(
+        "session_storage", "recentDevice", _b64({"deviceNumber": "359", "deviceType": "METER"})
+    )
+    assert rec["app_state"].get("current_device") == "359"
+
+
+def test_analyze_masked_value_classified_only():
+    rec = analyze_storage_value("local_storage", "access_token", "eyJh…z9Q (812 chars)")
+    assert rec["detected_type"] == "Masked"
+    assert rec["category"] == "Authentication" and rec["subtype"] == "Access Token"
+
+
+# --- the report builder over storage_intel findings ------------------------
+
+
 def _data() -> dict:
     return {
-        "auth_artifacts": [
-            # base64-encoded identity object (non-secret -> survives raw)
-            {
-                "kind": "local_storage",
-                "name": "currentUser",
-                "value_masked": _b64(
-                    {"username": "admin", "email": "jane.doe@corp.com", "tenant": "acme"}
-                ),
-                "role": "user",
-            },
-            # masked access token (secret -> masked at capture)
-            {
-                "kind": "local_storage",
-                "name": "access_token",
-                "value_masked": "eyJh…z9Q (812 chars)",
-                "role": "user",
-            },
-            # client-side roles
-            {
-                "kind": "local_storage",
-                "name": "roles",
-                "value_masked": _b64(["Admin", "Auditor"]),
-                "role": "user",
-            },
-            # plain config URL
-            {
-                "kind": "session_storage",
-                "name": "apiUrl",
-                "value_masked": "https://api.internal.example.com/v1",
-                "role": "user",
-            },
-            # app-state preference
-            {"kind": "session_storage", "name": "theme", "value_masked": "dark", "role": "user"},
+        "intel_findings": [
+            _storage_finding(
+                "local_storage",
+                "currentUser",
+                _b64({"username": "admin", "tenant": "acme", "roles": ["Admin"]}),
+            ),
+            _storage_finding(
+                "session_storage",
+                "recentDevice",
+                _b64({"deviceNumber": "359", "deviceType": "METER"}),
+            ),
+            _storage_finding("session_storage", "apiUrl", "https://api.internal.example.com/v1"),
+            _storage_finding("local_storage", "access_token", "eyJh…z9Q (812 chars)"),
         ]
     }
 
 
-def _by_key(si: dict) -> dict:
+def _by_key(si):
     return {i["key"]: i for i in si["inventory"]}
 
 
-def test_identity_object_decoded_and_correlated():
+def test_builder_inventory_has_contains_and_confidence():
     si = build_storage_intelligence({}, _data())
     row = _by_key(si)["currentUser"]
-    assert row["original_type"] == "Base64" and row["decoded_type"] == "JSON"
-    assert row["classification"].startswith("Identity")
-    idn = si["identity_summary"]
-    assert idn.get("username") == "admin" and idn.get("tenant") == "acme"
-    # email masked in the identity summary
-    assert "@corp.com" in idn.get("email", "") and "jane.doe" not in idn.get("email", "")
+    assert row["detected_type"] == "Base64" and row["decoded_type"] == "JSON"
+    assert "✓" not in row["contains"][0] and "username" in row["contains"]  # raw field names
+    assert row["confidence"] == "high"
+    assert si["summary"]["decoded_values"] >= 1
 
 
-def test_masked_token_classified_authentication():
+def test_builder_application_state_and_authorization():
     si = build_storage_intelligence({}, _data())
-    row = _by_key(si)["access_token"]
-    assert row["classification"].startswith("Authentication")
-    assert row["original_type"] == "Masked"
-    titles = " ".join(f["title"] for f in si["high_value_findings"])
-    assert "localStorage" in titles  # token-in-localStorage finding
+    assert si["application_state"].get("current_device") == "359"
+    assert "Admin" in si["authorization_summary"].get("roles", [])
+    assert si["summary"]["app_state_objects"] >= 1
 
 
-def test_client_side_roles_high_finding():
+def test_builder_configuration_summary():
     si = build_storage_intelligence({}, _data())
-    assert _by_key(si)["roles"]["classification"].startswith("Authorization")
-    assert si["summary"]["client_side_roles"] >= 1
-    assert any(
-        f["severity"] == "High" and "Roles/permissions" in f["title"]
-        for f in si["high_value_findings"]
-    )
-
-
-def test_config_url_classified():
-    si = build_storage_intelligence({}, _data())
-    assert _by_key(si)["apiUrl"]["classification"].startswith("Configuration")
     assert any("api.internal" in u for u in si["configuration_summary"]["api_endpoints"])
 
 
-def test_app_state_low_risk():
-    si = build_storage_intelligence({}, _data())
-    assert _by_key(si)["theme"]["classification"].startswith("Application State")
+def test_builder_cross_correlation():
+    # username 'admin' also present in JWT intelligence -> a correlation link.
+    report = {"jwt_intelligence": {"primary": {"user": {"username": "admin"}, "realm": "acme"}}}
+    si = build_storage_intelligence(report, _data())
+    joined = " ".join(si["correlations"])
+    assert "admin" in joined and si["summary"]["correlated"] >= 1
 
 
-def test_no_raw_secret_or_pii_leak():
-    si = build_storage_intelligence({}, _data())
-    blob = json.dumps(si)
-    assert "jane.doe@corp.com" not in blob  # email masked everywhere
+def test_builder_no_raw_pii_leak():
+    data = {
+        "intel_findings": [
+            _storage_finding("local_storage", "profile", _b64({"email": "jane.doe@corp.com"}))
+        ]
+    }
+    assert "jane.doe@corp.com" not in json.dumps(build_storage_intelligence({}, data))
 
 
-def test_summary_counts():
-    si = build_storage_intelligence({}, _data())
-    s = si["summary"]
-    assert s["total_items"] == 5
-    assert s["local_storage_keys"] == 3 and s["session_storage_keys"] == 2
-    assert s["decoded_values"] >= 2  # currentUser + roles decoded
-
-
-def test_empty_safe():
+def test_builder_empty_safe():
     si = build_storage_intelligence({})
     assert si["inventory"] == [] and si["summary"]["total_items"] == 0

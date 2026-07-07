@@ -94,6 +94,21 @@ def test_endpoint_inventory():
     assert "GET /dashboard" in inv
 
 
+def test_storage_intel_findings_from_raw_bundle():
+    import base64
+
+    cu = base64.b64encode(json.dumps({"username": "admin", "tenant": "acme"}).encode()).decode()
+    bundle = exploration_import.parse(
+        "qa",
+        {"browser_intelligence": {"local_storage": {"currentUser": cu}, "session_storage": {}}},
+    )
+    si = [f for f in bundle["intel_findings"] if f.kind == "storage_intel"]
+    assert si, "expected a storage_intel finding decoded from the raw bundle value"
+    rec = si[0].extra
+    assert rec["decoded_type"] == "JSON" and "username" in rec["contains"]
+    assert rec["identity"]["tenant"] == "acme"
+
+
 def test_parse_into_dtos():
     bundle = exploration_import.parse("qa", SAMPLE)
     sources = {c.source for c in bundle["crawl_endpoints"]}

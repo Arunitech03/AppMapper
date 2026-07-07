@@ -53,6 +53,13 @@ def test_hex_json():
     assert r["decoded_type"] == "JSON"
 
 
+def test_base64url_json():
+    # urlsafe base64 (uses - and _) of a JSON object.
+    val = base64.urlsafe_b64encode(json.dumps({"env": "prod", "region": "eu"}).encode()).decode()
+    r = decode_value(val)
+    assert r["decoded_type"] == "JSON" and r["fields"].get("env") == "prod"
+
+
 def test_unicode_escaped():
     r = decode_value("\\u0041\\u0042")  # -> "AB"
     assert r["layers"] and r["layers"][0]["type"] == "Unicode-escaped"

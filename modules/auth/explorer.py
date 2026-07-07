@@ -213,6 +213,27 @@ def _jwt_authorization(role, raw: dict) -> list[dict]:
     return summarize_jwts(find_jwts(*blobs), role=role)
 
 
+def _storage_analysis(role, raw: dict, raw_cookie_map: dict) -> list[dict]:
+    """Deep-analyze RAW storage/cookie values before masking (B6.1).
+
+    Runs the mask-safe storage analyzer over the fully-raw localStorage / sessionStorage /
+    cookie values captured this session, so decoding happens before masking. Only mask-safe
+    records are returned (no raw values).
+    """
+    from modules.intelligence.storage_intelligence import analyze_storage_value
+
+    out: list[dict] = []
+    for kind, store in (
+        ("local_storage", (raw or {}).get("localStorage")),
+        ("session_storage", (raw or {}).get("sessionStorage")),
+    ):
+        for name, value in (store or {}).items():
+            out.append(analyze_storage_value(kind, name, value, role=role))
+    for name, value in (raw_cookie_map or {}).items():
+        out.append(analyze_storage_value("cookie", name, value, role=role))
+    return out
+
+
 def _build_browser_intel(role, raw, cookies, csp_seen, cors_seen, ws_schemas) -> dict:
     """Assemble the masked browser-intelligence dict from raw capture pieces."""
     raw = raw or {}
@@ -675,6 +696,11 @@ def explore(
             role, raw_intel, cookies_intel, csp_seen, cors_seen, ws_schemas
         )
         browser_intelligence["cookie_jwt_authorization"] = cookie_jwt_intel
+        # Storage deep-intelligence, analyzed from the FULLY RAW values before masking
+        # (B6.1). Only mask-safe records are stored; raw values are not persisted.
+        browser_intelligence["storage_analysis"] = _storage_analysis(
+            role, raw_intel, raw_cookie_map
+        )
 
         # Build + WRITE the capture BEFORE closing, so it is never lost even if the
         # browser/context is already gone.
