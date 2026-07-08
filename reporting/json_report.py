@@ -18,6 +18,7 @@ from modules.intelligence.access_diff import analyze_access
 from modules.intelligence.asset_inventory import build_asset_intelligence
 from modules.intelligence.auth_intelligence import build_auth_intelligence
 from modules.intelligence.authz_candidates import build_authz_candidates
+from modules.intelligence.backend_intelligence import build_backend_intelligence
 from modules.intelligence.browser_intelligence import build_browser_intelligence
 from modules.intelligence.cookie_jwt_intelligence import build_cookie_jwt_intelligence
 from modules.intelligence.dns_intelligence import build_dns_intelligence
@@ -259,6 +260,14 @@ def build_report(
     if si_points:
         ei = report.setdefault("executive_intelligence", {})
         ei.setdefault("developer_discussion_points", []).extend(si_points)
+    # Backend Technology Intelligence — correlate captured evidence into a backend
+    # fingerprint. Runs before pentest_matrix so its framework attack surfaces
+    # (Actuator/Swagger/management) can be prioritized.
+    report["backend_intelligence"] = build_backend_intelligence(report, data)
+    bi_points = (report["backend_intelligence"] or {}).get("high_value_findings") or []
+    if bi_points:
+        ei = report.setdefault("executive_intelligence", {})
+        ei.setdefault("developer_discussion_points", []).extend(bi_points)
     report["pentest_matrix"] = build_pentest_matrix(report)
     return report
 

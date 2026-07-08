@@ -32,3 +32,23 @@ async def test_directory_enum_detects_present_paths(ctx_factory):
     assert "/admin" in found and found["/admin"]["status_code"] == 401
     assert "/robots.txt" in found
     assert "/this-does-not-exist" not in found
+
+
+@respx.mock
+async def test_directory_enum_probes_management_endpoints(ctx_factory):
+    base = "http://testserver.local"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/actuator":
+            return httpx.Response(200, headers={"content-type": "application/json"})
+        if request.url.path == "/actuator/env":
+            return httpx.Response(403)  # 403 still confirms the endpoint exists
+        return httpx.Response(404)
+
+    respx.route(host="testserver.local").mock(side_effect=handler)
+    ctx = ctx_factory(url=base)
+    result = await DirectoryEnumModule().run(ctx)
+
+    found = {d["path"]: d for d in result.data}
+    assert "/actuator" in found and found["/actuator"]["category"] == "management"
+    assert "/actuator/env" in found and found["/actuator/env"]["status_code"] == 403

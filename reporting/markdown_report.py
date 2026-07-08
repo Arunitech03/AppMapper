@@ -30,6 +30,10 @@ def render_markdown(
     # Intelligence-first front matter — the "first two pages" (sections 1-6).
     _render_executive_intelligence(report, h, lines)
 
+    # Backend Technology Intelligence — immediate architectural insight (framework,
+    # app server, auth stack, management endpoints).
+    _render_backend_intelligence(report, h, lines)
+
     # Cookie JWT Intelligence — decoded JWTs carried inside auth cookies (runs
     # independently of the bearer-token auth suite so cookie-only sessions still render).
     _render_cookie_jwt_intelligence(report, h, lines)
@@ -795,6 +799,80 @@ def _render_cookie_jwt_intelligence(report: dict, h, lines: list[str]) -> None:
     points = cji.get("developer_points") or []
     if points:
         lines.append("**Cookie JWT Discussion Points**")
+        lines.extend(f"{i}. {pt}" for i, pt in enumerate(points, start=1))
+        lines.append("")
+
+
+def _render_backend_intelligence(report: dict, h, lines: list[str]) -> None:
+    """Backend Technology Intelligence — correlated backend framework fingerprint."""
+    bi = report.get("backend_intelligence") or {}
+    frameworks = bi.get("frameworks") or []
+    if not (
+        frameworks
+        or bi.get("authentication_stack")
+        or bi.get("management_endpoints")
+        or bi.get("api_documentation")
+        or (bi.get("summary") or {}).get("cloud_platform", "—") != "—"
+    ):
+        return
+
+    h(2, "Backend Technology Intelligence")
+    s = bi.get("summary") or {}
+    lines.append(
+        f"- **Primary Framework:** {s.get('primary_framework', '—')} "
+        f"({s.get('framework_confidence', '—')}) · **Application Server:** "
+        f"{s.get('application_server', '—')} · **Authentication:** {s.get('authentication', '—')} "
+        f"· **Identity Provider:** {s.get('identity_provider', '—')}\n"
+    )
+    lines.append(
+        f"- **API Documentation:** {s.get('api_documentation', '—')} · **Management "
+        f"Endpoints:** {s.get('management_endpoints', 0)} · **Cloud Platform:** "
+        f"{s.get('cloud_platform', '—')}\n"
+    )
+
+    services = bi.get("backend_services") or []
+    if services:
+        h(3, f"Backend Services ({len(services)})")
+        lines.append("| Technology | Component | Version | Confidence | Evidence |")
+        lines.append("| --- | --- | --- | --- | --- |")
+        for svc in services:
+            lines.append(
+                f"| {svc.get('technology', '—')} | {svc.get('component', '—')} | "
+                f"{svc.get('version', '—')} | {svc.get('confidence', '—')} | "
+                f"{svc.get('evidence', '—')} |"
+            )
+        lines.append("")
+
+    if frameworks:
+        h(3, "Framework Detection")
+        for f in frameworks:
+            ev = "; ".join(f"{e['sign']} ({e['source']})" for e in f.get("evidence", [])[:8])
+            lines.append(f"- **{f['name']}** — confidence {f.get('confidence_pct', '—')}")
+            lines.append(f"    - Evidence: {ev}")
+        lines.append("")
+
+    mgmt = bi.get("management_endpoints") or []
+    if mgmt:
+        h(3, f"Management Endpoints ({len(mgmt)})")
+        lines.append("| Endpoint | Status | Risk | Confidence |")
+        lines.append("| --- | :---: | --- | --- |")
+        for m in mgmt:
+            lines.append(
+                f"| `{m['endpoint']}` | {m.get('status', '—')} | {m.get('risk', '—')} | "
+                f"{m.get('confidence', '—')} |"
+            )
+        lines.append("")
+
+    recs = bi.get("testing_recommendations") or {}
+    if recs:
+        h(3, "Framework-Specific Testing Recommendations")
+        for fw, items in recs.items():
+            lines.append(f"- **{fw}:** {', '.join(items)}")
+        lines.append("")
+
+    points = bi.get("developer_points") or []
+    if points:
+        lines.append("**Backend Technology Discussion Points**")
         lines.extend(f"{i}. {pt}" for i, pt in enumerate(points, start=1))
         lines.append("")
 
