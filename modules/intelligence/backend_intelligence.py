@@ -1,25 +1,32 @@
-"""Backend Technology & Framework Intelligence (Sprint B7).
+"""Backend Service Intelligence & Per-Service Fingerprinting (Sprint B7 / B7.1).
 
-Passively fingerprints the backend stack — web framework, application server,
-authentication framework, identity provider, API documentation, management endpoints
-and cloud runtime — by CORRELATING evidence already gathered during reconnaissance
-(the ``technologies`` fingerprint, session-cookie names, discovered management/API-doc
-paths, identity-provider intelligence, response content-types and JSON error shapes).
+Passively fingerprints the backend stack by CORRELATING evidence already gathered during
+reconnaissance (the ``technologies`` fingerprint, session-cookie names, discovered
+management/API-doc paths, identity-provider intelligence, response content-types and JSON
+error shapes). B7.1 runs the fingerprint engine INDEPENDENTLY for every discovered backend
+service (a modern app is a frontend + gateway + many services on different stacks), scoping
+evidence to each service by host + path-prefix, and draws the Frontend→Gateway→Services→
+Authentication→External architecture.
 
-Never relies on a single indicator: every framework detection carries a confidence and
-an evidence list tagged with its source. Discovery/analysis only — no exploitation,
-fuzzing, brute force, or vulnerability scanning; the engine reads already-captured data.
+Never relies on a single indicator: every detection carries confidence + evidence + source.
+Discovery/analysis only — no exploitation, brute force, or vulnerability scanning; reads
+already-captured data (management endpoints come from the bounded, offline-gated probe).
 """
 
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 from modules.intelligence import confidence as conf
+from modules.intelligence.gateway_detector import service_of_path
 
 # Each indicator: (kind, needle, weight, label). ``kind`` selects the evidence pool.
 #   cookie  -> session-cookie names        server  -> Server-header tech names
 #   tech    -> backend tech name/evidence  dir     -> a discovered path (200/401/403)
 #   path    -> any observed path           content -> a response content-type
 #   respkey -> a JSON error key set        idp     -> identity-provider name
+# Kinds dir/path/content/respkey are SERVICE-SPECIFIC (attributable to one service);
+# cookie/server/tech/idp are shared app/gateway context (corroboration only).
 _SIGNATURES: dict[str, list[tuple]] = {
     "Spring Boot": [
         ("tech", "spring boot", 3, "Spring Boot in tech fingerprint"),
@@ -79,8 +86,8 @@ _SIGNATURES: dict[str, list[tuple]] = {
         ("tech", "codeigniter", 2, "CodeIgniter in tech fingerprint"),
     ],
 }
+_SERVICE_KINDS = {"dir", "path", "content", "respkey"}
 
-# Application servers, matched against Server-header tech names + cookies.
 _APP_SERVERS = (
     ("Apache Tomcat", ("tomcat",)),
     ("Jetty", ("jetty",)),
@@ -96,48 +103,72 @@ _APP_SERVERS = (
     ("uWSGI", ("uwsgi",)),
     ("Puma", ("puma",)),
 )
+# Likely app server when a framework is detected but no server banner was captured.
+_APP_SERVER_BY_FRAMEWORK = {
+    "Spring Boot": "Servlet container (Tomcat/Jetty likely)",
+    "ASP.NET Core": "Kestrel (likely)",
+    "Django": "WSGI (Gunicorn/uWSGI likely)",
+    "Flask": "WSGI (Werkzeug/Gunicorn likely)",
+    "Node.js / Express": "Node.js runtime",
+    "Ruby on Rails": "Puma (likely)",
+    "PHP": "PHP-FPM (likely)",
+}
 
-# Framework-specific manual-testing recommendations (spec-driven).
 _TESTING_RECS: dict[str, list[str]] = {
     "Spring Boot": [
-        "Spring Security configuration",
-        "Spring Boot Actuator endpoints (env, beans, mappings, heapdump)",
-        "Swagger / OpenAPI exposure",
-        "H2 Console",
-        "SpEL injection",
-        "Spring Data REST",
-        "Management / health endpoints",
+        "Review Spring Security",
+        "Review Spring Boot Actuator (env, beans, mappings, heapdump)",
+        "Review Swagger / OpenAPI",
+        "Review H2 Console",
+        "Review SpEL injection",
+        "Review Spring Data REST",
+        "Review Health Endpoints",
     ],
     "ASP.NET Core": [
-        "Swagger exposure",
-        "SignalR hubs",
-        "Blazor endpoints",
-        "Health checks",
-        "Hangfire dashboard",
-        "Anti-forgery token handling",
+        "Review Swagger",
+        "Review SignalR",
+        "Review Blazor",
+        "Review Health Checks",
+        "Review Hangfire",
+        "Review Anti-Forgery Tokens",
     ],
     "Django": [
-        "Admin portal (/admin)",
-        "Debug toolbar / DEBUG=True",
-        "CSRF handling",
-        "Session handling",
+        "Review Admin Portal (/admin)",
+        "Review Debug Toolbar / DEBUG=True",
+        "Review CSRF handling",
+        "Review Session handling",
     ],
-    "Flask": ["Werkzeug debugger (PIN)", "Jinja2 SSTI", "Session cookie signing"],
-    "Laravel": ["Ignition debug page", "Sanctum/CSRF", "APP_DEBUG / .env exposure"],
-    "Node.js / Express": ["Error stack leakage", "Helmet headers", "Prototype pollution"],
-    "Ruby on Rails": ["Mass assignment", "ActionDispatch error pages", "CSRF tokens"],
-    "PHP": ["X-Powered-By version disclosure", "Session fixation", "Framework debug pages"],
+    "Flask": ["Review Werkzeug debugger (PIN)", "Review Jinja2 SSTI", "Review session signing"],
+    "Laravel": ["Review Ignition debug page", "Review Sanctum/CSRF", "Review .env exposure"],
+    "Node.js / Express": [
+        "Review error stack leakage",
+        "Review Helmet headers",
+        "Review prototype pollution",
+    ],
+    "Ruby on Rails": [
+        "Review mass assignment",
+        "Review ActionDispatch errors",
+        "Review CSRF tokens",
+    ],
+    "PHP": ["Review version disclosure", "Review session fixation", "Review framework debug pages"],
 }
 
 _ACTUATOR_SENSITIVE = ("env", "beans", "configprops", "heapdump", "threaddump", "mappings")
+_FRONTEND_FRAMEWORKS = ("React", "Angular", "Vue", "Svelte", "Next.js", "Nuxt")
+_SOURCE_LABELS = {
+    "cookie": "Cookies",
+    "server": "Server Header",
+    "tech": "Tech Fingerprint",
+    "dir": "Management/Path Discovery",
+    "path": "API / Path Discovery",
+    "content": "Response Content-Type",
+    "respkey": "Response Body Shape",
+    "idp": "Authentication Intelligence",
+}
 
 
 def _pct(score: int, n_evidence: int) -> tuple[str, str]:
-    """Map (evidence score, distinct-signal count) to (confidence level, percentage).
-
-    Corroboration matters: multiple independent signals raise confidence, while a
-    single indicator (even a strong one) is capped — the spec forbids relying on one.
-    """
+    """Map (evidence score, distinct-signal count) to (confidence level, percentage)."""
     if n_evidence >= 3 or score >= 6:
         return conf.HIGH, "95%"
     if n_evidence >= 2:
@@ -147,87 +178,8 @@ def _pct(score: int, n_evidence: int) -> tuple[str, str]:
     return conf.LOW, "35%"
 
 
-def _pools(report: dict, data: dict) -> dict:
-    """Assemble normalized evidence pools from the assembled report + raw data."""
-    techs = data.get("technologies") or []
-    ts = report.get("technology_stack") or {}
-    servers_blob = " ".join(str(t.get("name", "")) for t in techs if t.get("category") == "server")
-    servers_blob += " " + " ".join(ts.get("servers") or [])
-    tech_blob = " ".join(
-        f"{t.get('name', '')} {t.get('evidence', '')}"
-        for t in techs
-        if t.get("category") in ("backend", "server", "frontend")
-    )
-    tech_blob += " " + " ".join((ts.get("backend") or []) + (ts.get("libraries") or []))
-
-    cookies = set()
-    for a in data.get("auth_artifacts") or report.get("auth_artifacts") or []:
-        if (a.get("kind") or "").lower() == "cookie":
-            cookies.add(str(a.get("name", "")).lower())
-    for f in data.get("intel_findings") or []:
-        if (f.get("kind") or "") == "cookie_attr":
-            cookies.add(str(f.get("name", "")).lower())
-
-    directories = (
-        data.get("directories") or (report.get("discovered_assets") or {}).get("directories") or []
-    )
-    dir_hits = [
-        {
-            "path": str(d.get("path", "")).lower(),
-            "status": d.get("status_code"),
-            "category": d.get("category", ""),
-        }
-        for d in directories
-    ]
-    api_paths = {str(e.get("path", "")).lower() for e in (data.get("api_endpoints") or [])}
-    all_paths = (
-        {d["path"] for d in dir_hits}
-        | api_paths
-        | {str(c.get("path", "")).lower() for c in (data.get("crawl_endpoints") or [])}
-    )
-    contents = {
-        str(h.get("response_content_type") or "").lower() for h in (data.get("har_requests") or [])
-    }
-    respkeys: set[str] = set()
-    for h in data.get("har_requests") or []:
-        rk = h.get("response_keys")
-        parts = rk.split(",") if isinstance(rk, str) else (rk or [])
-        respkeys |= {str(p).strip().lower() for p in parts}
-
-    dns = report.get("dns_intelligence") or {}
-    idp = " ".join(
-        str(x).lower()
-        for x in (
-            (dns.get("auth_infrastructure") or {}).get("provider"),
-            (report.get("auth_intelligence") or {})
-            .get("exec_summary", {})
-            .get("identity_provider"),
-            *[i.get("identity_provider") for i in (data.get("idp_info") or [])],
-        )
-        if x
-    )
-    cloud = (dns.get("cloud_provider") or {}).get("provider") or (
-        report.get("domain_intelligence") or {}
-    ).get("cloud_provider")
-
-    return {
-        "cookies_blob": " ".join(cookies),
-        "cookies": cookies,
-        "servers": servers_blob.lower(),
-        "tech": tech_blob.lower(),
-        "dir_hits": dir_hits,
-        "paths": " ".join(all_paths),
-        "contents": " ".join(contents),
-        "respkeys": respkeys,
-        "idp": idp,
-        "cloud": cloud,
-    }
-
-
 def _match(kind: str, needle: str, pools: dict) -> bool:
     if kind == "cookie":
-        # Exact / prefix match against cookie NAMES (not a loose substring over a blob),
-        # so e.g. `_session_id` does not false-match `auth_session_id`.
         return any(
             c == needle or c.startswith(needle) or (needle.startswith(".") and needle in c)
             for c in pools["cookies"]
@@ -249,142 +201,6 @@ def _match(kind: str, needle: str, pools: dict) -> bool:
     return False
 
 
-def build_backend_intelligence(report: dict, data: dict | None = None) -> dict:
-    """Correlate captured evidence into a backend technology fingerprint."""
-    data = data or {}
-    pools = _pools(report, data)
-
-    frameworks: list[dict] = []
-    for name, indicators in _SIGNATURES.items():
-        evidence: list[dict] = []
-        score = 0
-        max_weight = 0
-        for kind, needle, weight, label in indicators:
-            if _match(kind, needle, pools):
-                source = {
-                    "cookie": "Cookies",
-                    "server": "Server Header",
-                    "tech": "Tech Fingerprint",
-                    "dir": "Management/Path Discovery",
-                    "path": "API / Path Discovery",
-                    "content": "Response Content-Type",
-                    "respkey": "Response Body Shape",
-                    "idp": "Authentication Intelligence",
-                }.get(kind, kind)
-                evidence.append({"sign": label, "source": source})
-                score += weight
-                max_weight = max(max_weight, weight)
-        # Never name a framework on a single weak indicator (spec: never rely on one).
-        # Require ≥2 corroborating signals OR one distinctive high-signal indicator.
-        if len(evidence) >= 2 or max_weight >= 3:
-            level, pct = _pct(score, len(evidence))
-            frameworks.append(
-                {
-                    "name": name,
-                    "confidence": level,
-                    "confidence_pct": pct,
-                    "score": score,
-                    "evidence": evidence,
-                }
-            )
-    frameworks.sort(key=lambda f: f["score"], reverse=True)
-
-    # Application server.
-    application_server = "—"
-    for label, sigs in _APP_SERVERS:
-        if any(s in pools["servers"] for s in sigs):
-            application_server = label
-            break
-    if application_server == "—" and "jsessionid" in pools["cookies_blob"]:
-        application_server = "Servlet container (Tomcat/Jetty likely)"
-
-    # Management endpoints (from the bounded probe / captured paths).
-    management_endpoints: list[dict] = []
-    for d in pools["dir_hits"]:
-        p = d["path"]
-        if (
-            d["category"] == "management"
-            or p.startswith("/actuator")
-            or p
-            in (
-                "/health",
-                "/management",
-                "/manage",
-            )
-        ):
-            sensitive = any(s in p for s in _ACTUATOR_SENSITIVE)
-            management_endpoints.append(
-                {
-                    "endpoint": p,
-                    "status": d["status"],
-                    "risk": "High" if sensitive else "Medium",
-                    "confidence": conf.HIGH,
-                }
-            )
-
-    # API documentation.
-    api_docs = [
-        d["path"]
-        for d in pools["dir_hits"]
-        if any(s in d["path"] for s in ("swagger", "api-docs", "openapi", "redoc"))
-    ]
-    api_docs += [p for p in ("/graphql",) if p in pools["paths"]]
-
-    # Authentication stack + identity provider (correlate with existing intelligence).
-    idp_name = _title_idp(pools["idp"])
-    auth_model = (report.get("auth_intelligence") or {}).get("authentication_model") or {}
-    auth_stack = []
-    primary = frameworks[0]["name"] if frameworks else None
-    if primary == "Spring Boot" and (
-        "spring_security_context" in pools["cookies_blob"] or "jsessionid" in pools["cookies_blob"]
-    ):
-        auth_stack.append("Spring Security")
-    if idp_name:
-        auth_stack.append(idp_name)
-    for kw, label in (("oauth2", "OAuth2"), ("oidc", "OIDC"), ("pkce", "PKCE")):
-        if kw in pools["paths"] or kw in pools["idp"]:
-            auth_stack.append(label)
-
-    services = _backend_services(
-        frameworks, application_server, auth_stack, idp_name, api_docs, management_endpoints
-    )
-    priority_findings, high_value = _findings(primary, management_endpoints, api_docs, pools)
-    testing = {
-        f["name"]: _TESTING_RECS[f["name"]] for f in frameworks if f["name"] in _TESTING_RECS
-    }
-    developer_points = _developer_points(
-        frameworks, application_server, auth_stack, management_endpoints, api_docs
-    )
-
-    summary = {
-        "primary_framework": primary or "Not identified",
-        "framework_confidence": frameworks[0]["confidence_pct"] if frameworks else "—",
-        "application_server": application_server,
-        "authentication": ", ".join(dict.fromkeys(auth_stack)) or auth_model.get("model", "—"),
-        "identity_provider": idp_name or "—",
-        "api_documentation": ", ".join(dict.fromkeys(api_docs)) or "not observed",
-        "management_endpoints": len(management_endpoints),
-        "cloud_platform": pools["cloud"] or "—",
-        "backend_services": len(services),
-        "frameworks_detected": len(frameworks),
-    }
-
-    return {
-        "summary": summary,
-        "frameworks": frameworks,
-        "backend_services": services,
-        "application_server": application_server,
-        "authentication_stack": list(dict.fromkeys(auth_stack)),
-        "identity_provider": idp_name or "",
-        "api_documentation": list(dict.fromkeys(api_docs)),
-        "management_endpoints": management_endpoints,
-        "testing_recommendations": testing,
-        "priority_findings": priority_findings,
-        "high_value_findings": high_value,
-        "developer_points": developer_points,
-    }
-
-
 def _title_idp(idp_blob: str) -> str:
     for kw, label in (
         ("keycloak", "Keycloak"),
@@ -400,154 +216,469 @@ def _title_idp(idp_blob: str) -> str:
     return ""
 
 
-def _backend_services(frameworks, app_server, auth_stack, idp, api_docs, mgmt) -> list[dict]:
-    rows: list[dict] = []
-    for f in frameworks:
-        rows.append(
+def _global_pools(report: dict, data: dict) -> dict:
+    """Shared, app-level evidence pools + per-request/dir attribution data for scoping."""
+    techs = data.get("technologies") or []
+    ts = report.get("technology_stack") or {}
+    servers = " ".join(str(t.get("name", "")) for t in techs if t.get("category") == "server")
+    servers += " " + " ".join(ts.get("servers") or [])
+    tech = " ".join(
+        f"{t.get('name', '')} {t.get('evidence', '')}"
+        for t in techs
+        if t.get("category") in ("backend", "server", "frontend")
+    )
+    tech += " " + " ".join((ts.get("backend") or []) + (ts.get("libraries") or []))
+
+    cookies = set()
+    for a in data.get("auth_artifacts") or report.get("auth_artifacts") or []:
+        if (a.get("kind") or "").lower() == "cookie":
+            cookies.add(str(a.get("name", "")).lower())
+    for f in data.get("intel_findings") or []:
+        if (f.get("kind") or "") == "cookie_attr":
+            cookies.add(str(f.get("name", "")).lower())
+
+    directories = (
+        data.get("directories") or (report.get("discovered_assets") or {}).get("directories") or []
+    )
+    dir_hits = []
+    for d in directories:
+        url = str(d.get("url", ""))
+        dir_hits.append(
             {
-                "technology": f["name"],
-                "component": "Web Framework",
-                "version": "—",
-                "confidence": f["confidence"],
-                "evidence": "; ".join(e["sign"] for e in f["evidence"][:4]),
+                "path": str(d.get("path", "")).lower(),
+                "url": url,
+                "host": (urlparse(url).hostname or "").lower(),
+                "status": d.get("status_code"),
+                "category": d.get("category", ""),
             }
         )
-    if app_server not in ("—", ""):
-        rows.append(
+
+    reqs = []
+    for h in data.get("har_requests") or []:
+        u = urlparse(str(h.get("url", "")))
+        rk = h.get("response_keys")
+        parts = rk.split(",") if isinstance(rk, str) else (rk or [])
+        reqs.append(
             {
-                "technology": app_server,
-                "component": "Application Server",
-                "version": "—",
-                "confidence": conf.HIGH,
-                "evidence": "Server header / cookie",
+                "host": (u.hostname or "").lower(),
+                "path": (u.path or "").lower(),
+                "ct": str(h.get("response_content_type") or "").lower(),
+                "rk": {str(p).strip().lower() for p in parts},
             }
         )
-    for a in dict.fromkeys(auth_stack):
-        rows.append(
-            {
-                "technology": a,
-                "component": "Authentication",
-                "version": "—",
-                "confidence": conf.HIGH if a == idp else conf.MEDIUM,
-                "evidence": "Authentication Intelligence",
-            }
+
+    dns = report.get("dns_intelligence") or {}
+    idp = " ".join(
+        str(x).lower()
+        for x in (
+            (dns.get("auth_infrastructure") or {}).get("provider"),
+            (report.get("auth_intelligence") or {})
+            .get("exec_summary", {})
+            .get("identity_provider"),
+            *[i.get("identity_provider") for i in (data.get("idp_info") or [])],
         )
-    if api_docs:
-        rows.append(
-            {
-                "technology": "Swagger / OpenAPI",
-                "component": "API Documentation",
-                "version": "—",
-                "confidence": conf.HIGH,
-                "evidence": ", ".join(api_docs[:3]),
-            }
-        )
-    if any("/actuator" in m["endpoint"] for m in mgmt):
-        rows.append(
-            {
-                "technology": "Spring Boot Actuator",
-                "component": "Management",
-                "version": "—",
-                "confidence": conf.HIGH,
-                "evidence": "/actuator probe",
-            }
-        )
-    if any("prometheus" in m["endpoint"] for m in mgmt):
-        rows.append(
-            {
-                "technology": "Prometheus",
-                "component": "Metrics",
-                "version": "—",
-                "confidence": conf.MEDIUM,
-                "evidence": "/actuator/prometheus",
-            }
-        )
-    return rows
+        if x
+    )
+    cloud = (dns.get("cloud_provider") or {}).get("provider") or (
+        report.get("domain_intelligence") or {}
+    ).get("cloud_provider")
+
+    return {
+        "cookies": cookies,
+        "servers": servers.lower(),
+        "tech": tech.lower(),
+        "idp": idp,
+        "cloud": cloud,
+        "dir_hits": dir_hits,
+        "reqs": reqs,
+    }
 
 
-def _findings(primary, mgmt, api_docs, pools) -> tuple[list[dict], list[dict]]:
+def _in_service(path: str, host: str, svc: str, svc_host: str) -> bool:
+    if svc_host and host and host != svc_host:
+        return False
+    return path.startswith(f"/{svc}") or service_of_path(path) == svc
+
+
+def _scope(gp: dict, host: str, service: str) -> dict:
+    """A `_match`-shaped pool scoped to one service (own dir/path/content/respkey)."""
+    sd = [d for d in gp["dir_hits"] if _in_service(d["path"], d["host"], service, host)]
+    sr = [r for r in gp["reqs"] if _in_service(r["path"], r["host"], service, host)]
+    respkeys: set = set()
+    for r in sr:
+        respkeys |= r["rk"]
+    return {
+        "cookies": gp["cookies"],
+        "servers": gp["servers"],
+        "tech": gp["tech"],
+        "idp": gp["idp"],
+        "dir_hits": [{"path": d["path"]} for d in sd],
+        "paths": " ".join(d["path"] for d in sd) + " " + " ".join(r["path"] for r in sr),
+        "contents": " ".join(r["ct"] for r in sr),
+        "respkeys": respkeys,
+        "_dir_hits_full": sd,
+    }
+
+
+def _fingerprint(pools: dict, *, allow_shared_only: bool) -> list[dict]:
+    """Run the signature engine over a (possibly scoped) pool. Returns ranked frameworks.
+
+    Requires corroboration (≥2 signals or one distinctive strong signal). Per-service,
+    a framework must have at least one SERVICE-SPECIFIC signal unless this is the lone
+    backend (``allow_shared_only``), so a shared cookie never fans out onto every service.
+    """
+    out: list[dict] = []
+    for name, indicators in _SIGNATURES.items():
+        evidence: list[dict] = []
+        score = max_weight = 0
+        specific = False
+        for kind, needle, weight, label in indicators:
+            if _match(kind, needle, pools):
+                evidence.append({"sign": label, "source": _SOURCE_LABELS.get(kind, kind)})
+                score += weight
+                max_weight = max(max_weight, weight)
+                specific = specific or kind in _SERVICE_KINDS
+        if not evidence:
+            continue
+        if not (len(evidence) >= 2 or max_weight >= 3):
+            continue
+        if not (specific or allow_shared_only):
+            continue
+        level, pct = _pct(score, len(evidence))
+        out.append(
+            {
+                "name": name,
+                "confidence": level,
+                "confidence_pct": pct,
+                "score": score,
+                "evidence": evidence,
+            }
+        )
+    out.sort(key=lambda f: f["score"], reverse=True)
+    return out
+
+
+def _app_server(pools: dict, framework: str) -> str:
+    for label, sigs in _APP_SERVERS:
+        if any(s in pools["servers"] for s in sigs):
+            return label
+    return _APP_SERVER_BY_FRAMEWORK.get(framework, "—")
+
+
+def _service_row(gp: dict, svc: dict, *, lone: bool, idp_name: str) -> dict:
+    host = (svc.get("host") or "").lower()
+    service = svc.get("service") or ""
+    scoped = _scope(gp, host, service)
+    fws = _fingerprint(scoped, allow_shared_only=lone)
+    primary = fws[0] if fws else None
+    framework = primary["name"] if primary else "Not identified"
+
+    mgmt = []
+    for d in scoped["_dir_hits_full"]:
+        p = d["path"]
+        if d["category"] == "management" or p.startswith("/actuator") or p.endswith("/health"):
+            mgmt.append(
+                {
+                    "endpoint": d["path"],
+                    "status": d["status"],
+                    "risk": "High" if any(s in p for s in _ACTUATOR_SENSITIVE) else "Medium",
+                }
+            )
+    swagger = sorted(
+        {
+            d["path"]
+            for d in scoped["_dir_hits_full"]
+            if any(s in d["path"] for s in ("swagger", "api-docs", "openapi", "redoc"))
+        }
+    )
+    return {
+        "service": _pretty_name(service),
+        "raw_service": service,
+        "base_url": svc.get("base_url") or (f"https://{host}/{service}" if host else ""),
+        "host": host,
+        "framework": framework,
+        "framework_confidence": primary["confidence_pct"] if primary else "—",
+        "application_server": _app_server(scoped, framework) if primary else "—",
+        "authentication": idp_name or "—",
+        "identity_provider": idp_name or "—",
+        "swagger": ", ".join(swagger) if swagger else "—",
+        "management_endpoints": mgmt,
+        "cloud": gp["cloud"] or "—",
+        "confidence": primary["confidence"] if primary else conf.LOW,
+        "evidence": (primary or {}).get("evidence", []),
+        "testing_recommendations": _TESTING_RECS.get(framework, []),
+    }
+
+
+def _pretty_name(service: str) -> str:
+    words = service.replace("-", " ").replace("_", " ").split()
+    return " ".join(w.upper() if w.lower() in ("api", "gis") else w.capitalize() for w in words)
+
+
+def build_backend_intelligence(report: dict, data: dict | None = None) -> dict:
+    """Per-service backend fingerprint + architecture (B7.1)."""
+    data = data or {}
+    gp = _global_pools(report, data)
+    idp_name = _title_idp(gp["idp"])
+
+    from modules.intelligence.service_registry import build_service_registry
+
+    registry = build_service_registry(data)
+    svc_records = registry.get("services") or []
+    gateway_host = registry.get("gateway_host")
+    lone = len(svc_records) <= 1
+
+    services = [_service_row(gp, s, lone=lone, idp_name=idp_name) for s in svc_records]
+
+    # Frontend node (from the existing frontend tech fingerprint).
+    frontend_fw = next(
+        (
+            f
+            for f in (report.get("technology_stack") or {}).get("frontend") or []
+            if any(k.lower() in f.lower() for k in _FRONTEND_FRAMEWORKS)
+        ),
+        None,
+    )
+    target = (report.get("target") or {}) if isinstance(report.get("target"), dict) else {}
+    target_url = target.get("url") or ""
+    target_host = (urlparse(target_url).hostname or "").lower()
+    frontend = None
+    if frontend_fw or target_host:
+        frontend = {
+            "service": "Frontend",
+            "base_url": target_url,
+            "host": target_host,
+            "framework": frontend_fw or "—",
+            "framework_confidence": "high" if frontend_fw else "—",
+            "application_server": "—",
+            "authentication": idp_name or "—",
+            "identity_provider": idp_name or "—",
+            "swagger": "—",
+            "management_endpoints": [],
+            "cloud": gp["cloud"] or "—",
+            "confidence": conf.HIGH if frontend_fw else conf.LOW,
+            "evidence": (
+                [{"sign": f"{frontend_fw} in tech fingerprint", "source": "Tech Fingerprint"}]
+                if frontend_fw
+                else []
+            ),
+            "testing_recommendations": [],
+        }
+
+    # Authentication node.
+    auth = None
+    if idp_name:
+        auth = {
+            "service": "Authentication",
+            "base_url": (report.get("dns_intelligence") or {})
+            .get("auth_infrastructure", {})
+            .get("host")
+            or "",
+            "host": (report.get("dns_intelligence") or {})
+            .get("auth_infrastructure", {})
+            .get("host")
+            or "",
+            "framework": idp_name,
+            "framework_confidence": "high",
+            "application_server": "—",
+            "authentication": "OIDC / OAuth2",
+            "identity_provider": idp_name,
+            "swagger": "—",
+            "management_endpoints": [],
+            "cloud": gp["cloud"] or "—",
+            "confidence": conf.HIGH,
+            "evidence": [
+                {"sign": f"{idp_name} identity provider", "source": "Authentication Intelligence"}
+            ],
+            "testing_recommendations": [
+                "Review OIDC/OAuth2 flows",
+                "Review token lifetimes",
+                "Review PKCE",
+            ],
+        }
+
+    inventory = ([frontend] if frontend else []) + services + ([auth] if auth else [])
+    architecture = _architecture(frontend, gateway_host, services, auth, report)
+    priority_findings, high_value = _findings(services)
+    summary = _summary(services, idp_name, gp["cloud"], frontend_fw)
+    developer_points = _developer_points(services, gateway_host, idp_name, gp["cloud"])
+    testing = {
+        s["framework"]: s["testing_recommendations"]
+        for s in services
+        if s["testing_recommendations"]
+    }
+
+    return {
+        "services": inventory,
+        "backend_services_list": services,
+        "architecture": architecture,
+        "summary": summary,
+        "priority_findings": priority_findings,
+        "high_value_findings": high_value,
+        "testing_recommendations": testing,
+        "developer_points": developer_points,
+        # Back-compat top-level keys (aggregate view).
+        "frameworks": [
+            {
+                "name": s["framework"],
+                "confidence_pct": s["framework_confidence"],
+                "confidence": s["confidence"],
+                "evidence": s["evidence"],
+            }
+            for s in services
+            if s["framework"] != "Not identified"
+        ],
+        "application_server": summary["application_server"],
+        "authentication_stack": [idp_name] if idp_name else [],
+        "identity_provider": idp_name,
+        "management_endpoints": [m for s in services for m in s["management_endpoints"]],
+    }
+
+
+def _architecture(frontend, gateway_host, services, auth, report) -> list[str]:
+    lines: list[str] = []
+    if frontend:
+        fw = f" ({frontend['framework']})" if frontend["framework"] != "—" else ""
+        lines.append(f"Frontend: {frontend['host'] or frontend['base_url']}{fw}")
+    if gateway_host:
+        lines.append(f"└── Gateway: {gateway_host}")
+    for s in services:
+        fw = s["framework"] if s["framework"] != "Not identified" else "framework not identified"
+        lines.append(f"    ├── {s['service']} — {fw}  [{s['base_url']}]")
+    if auth:
+        lines.append(
+            f"Authentication: {auth['framework']}" + (f" @ {auth['host']}" if auth["host"] else "")
+        )
+    ext = [
+        e.get("service")
+        for e in (report.get("dns_intelligence") or {}).get("external_dependencies", [])
+    ]
+    if ext:
+        lines.append("External: " + ", ".join([x for x in ext if x][:8]))
+    return lines
+
+
+def _findings(services: list[dict]) -> tuple[list[dict], list[dict]]:
     prio: list[dict] = []
     high: list[dict] = []
-    actuators = [m for m in mgmt if "/actuator" in m["endpoint"]]
-    if actuators:
-        sensitive = [m for m in actuators if m["risk"] == "High"]
-        ev = ", ".join(m["endpoint"] for m in actuators[:5])
-        prio.append(
-            {
-                "priority": "P1",
-                "area": "Spring Boot Actuator",
-                "reason": "Actuator management endpoints exposed",
-                "evidence": ev,
-                "tests": [
-                    "Actuator Information Disclosure",
-                    "Env/Heapdump Review",
-                    "Sensitive Endpoint Access",
-                ],
-            }
-        )
-        high.append(
-            {
-                "severity": "High" if sensitive else "Medium",
-                "title": "Spring Boot Actuator exposed",
-                "detail": f"Management endpoints reachable: {ev}. Review exposure and "
-                f"restrict /actuator in production.",
-            }
-        )
-    public_docs = [d for d in api_docs if "graphql" not in d]
-    if public_docs:
-        prio.append(
-            {
-                "priority": "P1",
-                "area": "API Documentation",
-                "reason": "Swagger/OpenAPI documentation discoverable",
-                "evidence": ", ".join(public_docs[:3]),
-                "tests": ["API Documentation Review", "Undocumented Endpoint Testing"],
-            }
-        )
-        high.append(
-            {
-                "severity": "Medium",
-                "title": "API documentation exposed",
-                "detail": f"API docs reachable at {', '.join(public_docs[:3])}.",
-            }
-        )
-    other_mgmt = [m for m in mgmt if "/actuator" not in m["endpoint"]]
-    if other_mgmt:
-        prio.append(
-            {
-                "priority": "P2",
-                "area": "Management Endpoints",
-                "reason": "Health/management endpoints reachable",
-                "evidence": ", ".join(m["endpoint"] for m in other_mgmt[:4]),
-                "tests": ["Health Endpoint Review", "Information Disclosure"],
-            }
-        )
-    if primary == "Spring Boot":
-        prio.append(
-            {
-                "priority": "P2",
-                "area": "Spring Security",
-                "reason": "Spring Security configuration review",
-                "evidence": "Spring Boot detected",
-                "tests": ["Authorization Rules", "Method Security", "CSRF"],
-            }
-        )
+    for s in services:
+        name = s["service"]
+        actuators = [m for m in s["management_endpoints"] if "/actuator" in m["endpoint"]]
+        if actuators:
+            ev = ", ".join(f"{m['endpoint']} ({m['status']})" for m in actuators[:5])
+            prio.append(
+                {
+                    "priority": "P1",
+                    "area": f"{name} — Spring Boot Actuator",
+                    "reason": "Actuator management endpoints detected",
+                    "evidence": ev,
+                    "tests": ["Actuator Information Disclosure", "Review Management Endpoints"],
+                }
+            )
+            high.append(
+                {
+                    "severity": "High" if any(m["risk"] == "High" for m in actuators) else "Medium",
+                    "title": f"{name}: Spring Boot Actuator detected",
+                    "detail": f"Management endpoints on {name}: {ev}. Review exposure.",
+                }
+            )
+        if s["swagger"] != "—":
+            prio.append(
+                {
+                    "priority": "P1",
+                    "area": f"{name} — API Documentation",
+                    "reason": "Swagger/OpenAPI discoverable",
+                    "evidence": s["swagger"],
+                    "tests": ["Review API Documentation", "Undocumented Endpoint Testing"],
+                }
+            )
+            high.append(
+                {
+                    "severity": "Medium",
+                    "title": f"{name}: Swagger publicly accessible",
+                    "detail": f"API docs on {name}: {s['swagger']}.",
+                }
+            )
+        health = [m for m in s["management_endpoints"] if m["endpoint"].endswith("/health")]
+        if health and not actuators:
+            prio.append(
+                {
+                    "priority": "P2",
+                    "area": f"{name} — Health Endpoint",
+                    "reason": "Health/management endpoint reachable",
+                    "evidence": ", ".join(m["endpoint"] for m in health[:3]),
+                    "tests": ["Review Health Endpoints", "Information Disclosure"],
+                }
+            )
+        if s["framework"] == "Spring Boot":
+            prio.append(
+                {
+                    "priority": "P2",
+                    "area": f"{name} — Spring Security",
+                    "reason": "Spring Security configuration review",
+                    "evidence": "Spring Boot detected",
+                    "tests": ["Authorization Rules", "CSRF"],
+                }
+            )
     return prio, high
 
 
-def _developer_points(frameworks, app_server, auth_stack, mgmt, api_docs) -> list[str]:
+def _summary(services: list[dict], idp: str, cloud, frontend_fw) -> dict:
+    def fam(name):
+        return sum(1 for s in services if s["framework"] == name)
+
+    identified = [s for s in services if s["framework"] != "Not identified"]
+    frameworks = [s["framework"] for s in identified]
+    primary = max(set(frameworks), key=frameworks.count) if frameworks else "Not identified"
+    app_servers = [s["application_server"] for s in identified if s["application_server"] != "—"]
+    return {
+        "backend_services": len(services),
+        "frameworks_detected": len(identified),
+        "spring_services": fam("Spring Boot"),
+        "aspnet_services": fam("ASP.NET Core"),
+        "node_services": fam("Node.js / Express"),
+        "auth_services": 1 if idp else 0,
+        "management_endpoints": sum(len(s["management_endpoints"]) for s in services),
+        "swagger_endpoints": sum(1 for s in services if s["swagger"] != "—"),
+        "health_endpoints": sum(
+            1
+            for s in services
+            for m in s["management_endpoints"]
+            if m["endpoint"].endswith("/health")
+        ),
+        "cloud_services": 1 if cloud else 0,
+        "primary_framework": primary,
+        "framework_confidence": identified[0]["framework_confidence"] if identified else "—",
+        "application_server": app_servers[0] if app_servers else "—",
+        "identity_provider": idp or "—",
+        "cloud_platform": cloud or "—",
+        "frontend_framework": frontend_fw or "—",
+    }
+
+
+def _developer_points(services, gateway_host, idp, cloud) -> list[str]:
     pts: list[str] = []
-    if frameworks:
+    identified = [s for s in services if s["framework"] != "Not identified"]
+    fw_by_service = {s["service"]: s["framework"] for s in identified}
+    if len(services) > 1:
         pts.append(
-            f"{frameworks[0]['name']} detected ({frameworks[0]['confidence_pct']} confidence) "
-            f"from correlated evidence."
+            f"Frontend communicates with {len(services)} backend service(s) via the gateway."
         )
-    if app_server not in ("—", ""):
-        pts.append(f"Application server: {app_server}.")
-    for a in dict.fromkeys(auth_stack):
-        pts.append(f"Authentication stack includes {a}.")
-    if any("/actuator" in m["endpoint"] for m in mgmt):
-        pts.append("Spring Boot Actuator management endpoints are exposed.")
-    if api_docs:
-        pts.append(f"API documentation is discoverable ({', '.join(api_docs[:3])}).")
+    for name, fw in fw_by_service.items():
+        others = [f for f in fw_by_service.values() if f == fw]
+        if len(others) == 1:
+            pts.append(f"{fw} detected only on {name}.")
+    if gateway_host and len({s["framework"] for s in identified}) > 1:
+        pts.append(
+            f"Gateway ({gateway_host}) proxies requests to heterogeneous backend frameworks."
+        )
+    for s in services:
+        if any("/actuator" in m["endpoint"] for m in s["management_endpoints"]):
+            pts.append(f"Management endpoints discovered on {s['service']}.")
+        if s["swagger"] != "—":
+            pts.append(f"Swagger exposed for {s['service']}.")
+    if idp:
+        pts.append(f"Authentication handled by {idp}.")
+    if cloud:
+        pts.append(f"Cloud platform: {cloud}.")
     return pts

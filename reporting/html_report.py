@@ -24,7 +24,7 @@ from reporting.markdown_report import render_markdown
 # (Critical Findings + Architecture Snapshot are synthesized header components.)
 _INSIGHT_ORDER = (
     "Executive Intelligence Summary",
-    "Backend Technology Intelligence",
+    "Backend Service Intelligence",
     "File Upload & Download Intelligence",
     "Authentication Intelligence",
     "Authentication Token Inventory",
@@ -260,12 +260,14 @@ def _kpi_cards(report: dict) -> str:
             ("Storage Secrets", si.get("secrets", 0), "red"),
         ]
     bk = (report.get("backend_intelligence") or {}).get("summary") or {}
-    if bk.get("frameworks_detected") or bk.get("management_endpoints"):
+    if bk.get("backend_services") or bk.get("frameworks_detected"):
         cards += [
-            ("Primary Framework", bk.get("primary_framework", "—"), "teal"),
-            ("App Server", bk.get("application_server", "—"), "blue"),
+            ("Backend Services", bk.get("backend_services", 0), "teal"),
+            ("Spring Services", bk.get("spring_services", 0), "blue"),
+            ("ASP.NET Services", bk.get("aspnet_services", 0), "purple"),
+            ("Node Services", bk.get("node_services", 0), "teal"),
             ("Management Endpoints", bk.get("management_endpoints", 0), "amber"),
-            ("Backend Confidence", bk.get("framework_confidence", "—"), "purple"),
+            ("Swagger Endpoints", bk.get("swagger_endpoints", 0), "amber"),
         ]
     items = "".join(
         f'<div class="kpi {cls}"><div class="v">{v}</div>'

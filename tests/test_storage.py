@@ -42,6 +42,38 @@ def test_roundtrip(memory_db):
     assert data["api_endpoints"][0]["path"] == "/api/users"
 
 
+def test_merge_directories_appends_without_wiping(memory_db):
+    db = memory_db
+    tid = db.upsert_target(TargetInput(url="https://example.com", domain="example.com"))
+    db.save_directories(
+        tid,
+        [
+            DirectoryHit(
+                path="/admin", url="https://example.com/admin", status_code=401, category="admin"
+            )
+        ],
+    )
+    # A per-service probe merges new hits — must NOT wipe the directory-enum row.
+    db.merge_directories(
+        tid,
+        [
+            DirectoryHit(
+                path="/device/api/actuator",
+                url="https://example.com/device/api/actuator",
+                status_code=200,
+                category="management",
+            ),
+            DirectoryHit(
+                path="/admin", url="https://example.com/admin", status_code=401, category="admin"
+            ),  # duplicate url -> ignored
+        ],
+    )
+    urls = {d["url"] for d in db.fetch_all(tid)["directories"]}
+    assert "https://example.com/admin" in urls  # preserved
+    assert "https://example.com/device/api/actuator" in urls  # appended
+    assert len(db.fetch_all(tid)["directories"]) == 2  # duplicate not double-counted
+
+
 def test_save_is_idempotent(memory_db):
     db = memory_db
     tid = db.upsert_target(TargetInput(url="https://example.com", domain="example.com"))

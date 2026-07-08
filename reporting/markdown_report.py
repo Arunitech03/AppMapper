@@ -804,75 +804,66 @@ def _render_cookie_jwt_intelligence(report: dict, h, lines: list[str]) -> None:
 
 
 def _render_backend_intelligence(report: dict, h, lines: list[str]) -> None:
-    """Backend Technology Intelligence — correlated backend framework fingerprint."""
+    """Backend Service Intelligence — per-service backend fingerprint + architecture."""
     bi = report.get("backend_intelligence") or {}
-    frameworks = bi.get("frameworks") or []
-    if not (
-        frameworks
-        or bi.get("authentication_stack")
-        or bi.get("management_endpoints")
-        or bi.get("api_documentation")
-        or (bi.get("summary") or {}).get("cloud_platform", "—") != "—"
-    ):
+    inventory = bi.get("services") or []
+    if not inventory:
         return
 
-    h(2, "Backend Technology Intelligence")
+    h(2, "Backend Service Intelligence")
     s = bi.get("summary") or {}
     lines.append(
-        f"- **Primary Framework:** {s.get('primary_framework', '—')} "
-        f"({s.get('framework_confidence', '—')}) · **Application Server:** "
-        f"{s.get('application_server', '—')} · **Authentication:** {s.get('authentication', '—')} "
-        f"· **Identity Provider:** {s.get('identity_provider', '—')}\n"
+        f"- **Backend Services:** {s.get('backend_services', 0)} · **Spring:** "
+        f"{s.get('spring_services', 0)} · **ASP.NET:** {s.get('aspnet_services', 0)} · "
+        f"**Node:** {s.get('node_services', 0)} · **Identity Provider:** "
+        f"{s.get('identity_provider', '—')} · **Cloud:** {s.get('cloud_platform', '—')}\n"
     )
     lines.append(
-        f"- **API Documentation:** {s.get('api_documentation', '—')} · **Management "
-        f"Endpoints:** {s.get('management_endpoints', 0)} · **Cloud Platform:** "
-        f"{s.get('cloud_platform', '—')}\n"
+        f"- **Management Endpoints:** {s.get('management_endpoints', 0)} · **Swagger:** "
+        f"{s.get('swagger_endpoints', 0)} · **Health:** {s.get('health_endpoints', 0)}\n"
     )
 
-    services = bi.get("backend_services") or []
-    if services:
-        h(3, f"Backend Services ({len(services)})")
-        lines.append("| Technology | Component | Version | Confidence | Evidence |")
-        lines.append("| --- | --- | --- | --- | --- |")
-        for svc in services:
-            lines.append(
-                f"| {svc.get('technology', '—')} | {svc.get('component', '—')} | "
-                f"{svc.get('version', '—')} | {svc.get('confidence', '—')} | "
-                f"{svc.get('evidence', '—')} |"
+    h(3, f"Backend Service Inventory ({len(inventory)})")
+    lines.append(
+        "| Service | Base URL | Host | Framework | App Server | Authentication | "
+        "Management | Swagger | Cloud | Confidence | Evidence |"
+    )
+    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for svc in inventory:
+        mgmt = (
+            ", ".join(
+                f"{m['endpoint']}({m['status']})" for m in svc.get("management_endpoints", [])
             )
-        lines.append("")
+            or "—"
+        )
+        ev = "; ".join(e["sign"] for e in svc.get("evidence", [])[:4]) or "—"
+        lines.append(
+            f"| {svc.get('service', '—')} | {svc.get('base_url') or '—'} | "
+            f"{svc.get('host') or '—'} | {svc.get('framework', '—')} | "
+            f"{svc.get('application_server', '—')} | {svc.get('authentication', '—')} | "
+            f"{mgmt} | {svc.get('swagger', '—')} | {svc.get('cloud', '—')} | "
+            f"{svc.get('framework_confidence', '—')} | {ev} |"
+        )
+    lines.append("")
 
-    if frameworks:
-        h(3, "Framework Detection")
-        for f in frameworks:
-            ev = "; ".join(f"{e['sign']} ({e['source']})" for e in f.get("evidence", [])[:8])
-            lines.append(f"- **{f['name']}** — confidence {f.get('confidence_pct', '—')}")
-            lines.append(f"    - Evidence: {ev}")
-        lines.append("")
+    arch = bi.get("architecture") or []
+    if arch:
+        h(3, "Backend Service Architecture")
+        lines.append("```")
+        lines.extend(arch)
+        lines.append("```\n")
 
-    mgmt = bi.get("management_endpoints") or []
-    if mgmt:
-        h(3, f"Management Endpoints ({len(mgmt)})")
-        lines.append("| Endpoint | Status | Risk | Confidence |")
-        lines.append("| --- | :---: | --- | --- |")
-        for m in mgmt:
-            lines.append(
-                f"| `{m['endpoint']}` | {m.get('status', '—')} | {m.get('risk', '—')} | "
-                f"{m.get('confidence', '—')} |"
-            )
-        lines.append("")
-
-    recs = bi.get("testing_recommendations") or {}
-    if recs:
-        h(3, "Framework-Specific Testing Recommendations")
-        for fw, items in recs.items():
-            lines.append(f"- **{fw}:** {', '.join(items)}")
+    svc_tests = [s2 for s2 in inventory if s2.get("testing_recommendations")]
+    if svc_tests:
+        h(3, "Service-Specific Testing")
+        for svc in svc_tests:
+            lines.append(f"- **{svc['service']}** ({svc['framework']}):")
+            lines.extend(f"    - ✓ {t}" for t in svc["testing_recommendations"])
         lines.append("")
 
     points = bi.get("developer_points") or []
     if points:
-        lines.append("**Backend Technology Discussion Points**")
+        lines.append("**Backend Service Discussion Points**")
         lines.extend(f"{i}. {pt}" for i, pt in enumerate(points, start=1))
         lines.append("")
 

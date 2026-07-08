@@ -167,6 +167,40 @@ class Database:
         ]
         self._replace(target_id, db.Directory, rows)
 
+    def merge_directories(self, target_id: int, items: list[DirectoryHit]) -> None:
+        """Add directory/probe hits that aren't already present (dedupe by url).
+
+        Non-destructive counterpart to ``save_directories`` — used by the tier-2
+        per-service backend probe to append management/API-doc hits without wiping the
+        directory-enum results.
+        """
+        with self.session() as s:
+            existing = {
+                r[0]
+                for r in s.execute(
+                    select(db.Directory.url).where(db.Directory.target_id == target_id)
+                )
+            }
+            for i in items:
+                if i.url in existing:
+                    continue
+                existing.add(i.url)
+                s.add(
+                    db.Directory(
+                        target_id=target_id,
+                        path=i.path,
+                        url=i.url,
+                        status_code=i.status_code,
+                        content_length=i.content_length,
+                        content_type=i.content_type,
+                        category=i.category,
+                        confidence=i.confidence,
+                        expected_content_type=i.expected_content_type,
+                        validation=i.validation,
+                    )
+                )
+            s.commit()
+
     def save_techstack(self, target_id: int, tech: TechStack) -> None:
         rows: list[db.Technology] = []
         for name in tech.frontend:

@@ -129,6 +129,15 @@ class Orchestrator:
             except Exception as exc:  # noqa: BLE001 - DNS optional; isolate failure
                 log.error("tier2.dns_failed", error=str(exc))
 
+        # Bounded per-service backend probe (management / API-doc allowlist at each
+        # reachable service base URL). Passive: GET only, status codes only. Never offline.
+        if not ctx.options.get("offline"):
+            try:
+                await self._probe_backend_services(target_id, ctx, data)
+            except Exception as exc:  # noqa: BLE001 - probe optional; isolate failure
+                log.error("tier2.backend_probe_failed", error=str(exc))
+            data = self.db.fetch_all(target_id)  # refresh so later phases see probe hits
+
         # Reconcile the IdP from captured artifacts (fixes live-detection "Unknown").
         self._phase("idp_reconcile", lambda: self._reconcile_idp(target_id, data))
 
@@ -260,6 +269,83 @@ class Orchestrator:
 
         self.db.save_intel_findings(target_id, findings)
         log.info("content_intel.saved", findings=len(findings))
+
+    # Per-service management/API-doc allowlist. GET only; 401/403 confirm existence.
+    _BACKEND_PROBE_PATHS: tuple[tuple[str, str], ...] = (
+        ("actuator", "management"),
+        ("actuator/health", "management"),
+        ("actuator/info", "management"),
+        ("actuator/metrics", "management"),
+        ("actuator/prometheus", "management"),
+        ("actuator/mappings", "management"),
+        ("actuator/env", "management"),
+        ("actuator/beans", "management"),
+        ("health", "management"),
+        ("swagger", "api"),
+        ("swagger-ui", "api"),
+        ("v3/api-docs", "api"),
+        ("openapi.json", "api"),
+    )
+    _BACKEND_PROBE_STATUSES = {200, 401, 403}
+
+    async def _probe_backend_services(self, target_id: int, ctx: ScanContext, data: dict) -> None:
+        """Passively probe management/API-doc endpoints at each reachable service base URL.
+
+        Discovers per-service management/Swagger endpoints (Sprint B7.1). Reuses the shared
+        HTTP client (honors --insecure/timeout). Only reachable (same-registrable-domain)
+        service roots are probed, capped in count; only status codes are recorded — no bodies
+        are fetched or parsed, no exploitation. Hits are MERGED into ``directories`` so the
+        directory-enum results are preserved.
+        """
+        from urllib.parse import urlparse
+
+        from core.http import client_for
+        from modules.intelligence.domain_classifier import registrable_domain
+        from modules.intelligence.service_registry import build_service_registry
+
+        target_host = urlparse(ctx.target.url).hostname or ""
+        target_org = registrable_domain(target_host)
+        scheme = urlparse(ctx.target.url).scheme or "https"
+
+        registry = build_service_registry(data)
+        roots: dict[str, None] = {}
+        for svc in registry.get("services") or []:
+            host = svc.get("host") or ""
+            service = svc.get("service") or ""
+            if not host or not service:
+                continue
+            if registrable_domain(host) != target_org:  # reachable / same-org only
+                continue
+            root = f"{scheme}://{host}/{service.strip('/')}"
+            if root != f"{scheme}://{target_host}":  # app root already covered by dir-enum
+                roots.setdefault(root, None)
+        if not roots:
+            return
+
+        hits: list[DirectoryHit] = []
+        async with client_for(ctx, follow_redirects=False) as client:
+            for root in list(roots)[:8]:  # cap services (× ~13 paths ≈ 100 requests max)
+                for path, category in self._BACKEND_PROBE_PATHS:
+                    url = f"{root}/{path}"
+                    try:
+                        resp = await client.get(url)
+                    except Exception:  # noqa: BLE001 - unreachable/timeout: not present
+                        continue
+                    if resp.status_code in self._BACKEND_PROBE_STATUSES:
+                        hits.append(
+                            DirectoryHit(
+                                path="/" + urlparse(url).path.lstrip("/"),
+                                url=url,
+                                status_code=resp.status_code,
+                                content_type=resp.headers.get("content-type"),
+                                category=category,
+                                confidence="high",
+                                validation="per-service backend probe",
+                            )
+                        )
+        if hits:
+            self.db.merge_directories(target_id, hits)
+        log.info("tier2.backend_probe", roots=len(roots), hits=len(hits))
 
     async def _resolve_dns(self, target_id: int, ctx: ScanContext, data: dict) -> None:
         """Passively resolve discovered hosts (A/AAAA/CNAME/TXT/MX/NS/SOA)."""

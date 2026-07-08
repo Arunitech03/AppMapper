@@ -340,20 +340,22 @@ def test_storage_intelligence_section_and_dashboard():
 
 
 def test_backend_intelligence_section_and_dashboard():
+    gw = "app.example.com"
     data = dict(
         _data(),
+        target={"url": f"https://{gw}", "domain": "example.com"},
         technologies=[
             {
                 "name": "Spring Boot",
                 "category": "backend",
                 "evidence": "header:x-application-context",
             },
-            {"name": "Apache Tomcat", "category": "server", "evidence": "header:Server"},
         ],
+        har_requests=[{"url": f"https://{gw}/device/api/v1/x", "method": "GET", "role": "test1"}],
         directories=[
             {
-                "path": "/actuator",
-                "url": "https://x/actuator",
+                "path": "/device/api/actuator",
+                "url": f"https://{gw}/device/api/actuator",
                 "status_code": 200,
                 "category": "management",
             }
@@ -361,13 +363,13 @@ def test_backend_intelligence_section_and_dashboard():
     )
     html = render_html(data)
     # Top-level expanded section, placed early (after Executive Summary, before auth).
-    assert '<section id="s-backend-technology-intelligence">' in html
-    assert html.index('<section id="s-backend-technology-intelligence">') < html.index(
+    assert '<section id="s-backend-service-intelligence">' in html
+    assert html.index('<section id="s-backend-service-intelligence">') < html.index(
         '<section id="s-authentication-intelligence">'
     )
-    # Dashboard KPI cards + detected framework/server visible.
-    assert "Primary Framework" in html and "Spring Boot" in html
-    assert "Apache Tomcat" in html and "/actuator" in html
+    # Dashboard KPI cards + per-service inventory visible.
+    assert "Backend Services" in html and "Spring Boot" in html
+    assert "/device/api/actuator" in html
 
 
 def test_critical_findings_are_alert_panels():
