@@ -294,16 +294,18 @@ def _global_pools(report: dict, data: dict) -> dict:
     }
 
 
-def _in_service(path: str, host: str, svc: str, svc_host: str) -> bool:
-    if svc_host and host and host != svc_host:
-        return False
-    return path.startswith(f"/{svc}") or service_of_path(path) == svc
+def _in_service(path: str, svc: str) -> bool:
+    # Attribute by the (globally unique) service PATH prefix, host-agnostic: a service is
+    # commonly reachable both via the gateway (gateway/<svc>/actuator, where the probe hit
+    # it) and directly (its own host), so requiring host equality drops real hits. The
+    # segment-boundary check keeps `/early-warning` from swallowing `/early-warning-parameters`.
+    return path == f"/{svc}" or path.startswith(f"/{svc}/") or service_of_path(path) == svc
 
 
-def _scope(gp: dict, host: str, service: str) -> dict:
+def _scope(gp: dict, service: str) -> dict:
     """A `_match`-shaped pool scoped to one service (own dir/path/content/respkey)."""
-    sd = [d for d in gp["dir_hits"] if _in_service(d["path"], d["host"], service, host)]
-    sr = [r for r in gp["reqs"] if _in_service(r["path"], r["host"], service, host)]
+    sd = [d for d in gp["dir_hits"] if _in_service(d["path"], service)]
+    sr = [r for r in gp["reqs"] if _in_service(r["path"], service)]
     respkeys: set = set()
     for r in sr:
         respkeys |= r["rk"]
@@ -368,7 +370,7 @@ def _app_server(pools: dict, framework: str) -> str:
 def _service_row(gp: dict, svc: dict, *, lone: bool, idp_name: str) -> dict:
     host = (svc.get("host") or "").lower()
     service = svc.get("service") or ""
-    scoped = _scope(gp, host, service)
+    scoped = _scope(gp, service)
     fws = _fingerprint(scoped, allow_shared_only=lone)
     primary = fws[0] if fws else None
     framework = primary["name"] if primary else "Not identified"
@@ -426,6 +428,21 @@ def build_backend_intelligence(report: dict, data: dict | None = None) -> dict:
     registry = build_service_registry(data)
     svc_records = registry.get("services") or []
     gateway_host = registry.get("gateway_host")
+    # Exclude known third-party dependency orgs (e.g. *.googleapis.com, mapbox) — they are
+    # external integrations, not backend services (surfaced under "External" instead).
+    # Match by registrable domain so a different subdomain (maps. vs fonts.) still filters.
+    from modules.intelligence.domain_classifier import registrable_domain
+
+    external_orgs = {
+        registrable_domain(str(e.get("host") or "").lower())
+        for e in (report.get("dns_intelligence") or {}).get("external_dependencies", [])
+        if e.get("host")
+    }
+    svc_records = [
+        s
+        for s in svc_records
+        if registrable_domain((s.get("host") or "").lower()) not in external_orgs
+    ]
     lone = len(svc_records) <= 1
 
     services = [_service_row(gp, s, lone=lone, idp_name=idp_name) for s in svc_records]
